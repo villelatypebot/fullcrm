@@ -70,7 +70,7 @@ export const FocusContextPanel: React.FC<FocusContextPanelProps> = ({
     isExpanded
 }) => {
     const [showContactInfo, setShowContactInfo] = useState(false);
-    const [activeTab, setActiveTab] = useState('notas');
+    const [activeTab, setActiveTab] = useState('chat');
     const [note, setNote] = useState('');
     const [copiedScript, setCopiedScript] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1066,10 +1066,10 @@ export const FocusContextPanel: React.FC<FocusContextPanelProps> = ({
                         </div>
 
                         {/* COL 2: Workspace (Fixed Width) */}
-                        <div className="w-[400px] flex flex-col bg-slate-900/20 border-l border-white/5 relative">
+                        <div className="w-[400px] flex flex-col min-h-0 bg-slate-900/20 border-l border-white/5 relative">
                             {/* Workspace Tabs */}
                             <div className="shrink-0 flex items-center px-4 h-14 border-b border-white/5 gap-4">
-                                {['notas', 'chat', 'scripts', 'files'].map((tab) => (
+                                {['chat', 'notas', 'scripts', 'files'].map((tab) => (
                                     <button
                                         key={tab}
                                         onClick={() => setActiveTab(tab)}
@@ -1362,17 +1362,21 @@ export const FocusContextPanel: React.FC<FocusContextPanelProps> = ({
 
                             {/* Chat - AI Assistant Embedded */}
                             {activeTab === 'chat' && (
-                                <div className="absolute top-14 left-0 right-0 bottom-0 bg-slate-950 z-10">
-                                    <React.Suspense fallback={
-                                        <div className="flex items-center justify-center h-full">
-                                            <Loader2 size={24} className="animate-spin text-primary-500" />
-                                        </div>
-                                    }>
+                                <div className="flex-1 min-h-0 bg-slate-950 overflow-hidden">
+                                    <React.Suspense
+                                        fallback={
+                                            <div className="flex items-center justify-center h-full">
+                                                <Loader2 size={24} className="animate-spin text-primary-500" />
+                                            </div>
+                                        }
+                                    >
                                         <AIAssistant
                                             isOpen={true}
                                             onClose={() => setActiveTab('notas')}
                                             variant="sidebar"
                                             activeBoard={board}
+                                            dealId={deal.id}
+                                            contactId={contact?.id}
                                         />
                                     </React.Suspense>
                                 </div>

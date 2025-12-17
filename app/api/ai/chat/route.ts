@@ -9,6 +9,32 @@ import { isAllowedOrigin } from '@/lib/security/sameOrigin';
 
 export const maxDuration = 60;
 
+type AIProvider = 'google' | 'openai' | 'anthropic';
+
+function asOptionalString(v: unknown): string | undefined {
+    return typeof v === 'string' ? v : undefined;
+}
+
+function asOptionalNumber(v: unknown): number | undefined {
+    return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+}
+
+function asOptionalStages(
+    v: unknown
+): Array<{ id: string; name: string }> | undefined {
+    if (!Array.isArray(v)) return undefined;
+
+    const stages: Array<{ id: string; name: string }> = [];
+    for (const item of v) {
+        const maybe = item as any;
+        if (typeof maybe?.id === 'string' && typeof maybe?.name === 'string') {
+            stages.push({ id: maybe.id, name: maybe.name });
+        }
+    }
+
+    return stages.length ? stages : undefined;
+}
+
 export async function POST(req: Request) {
     // Mitigação CSRF: endpoint autenticado por cookies.
     if (!isAllowedOrigin(req)) {
@@ -74,38 +100,50 @@ export async function POST(req: Request) {
         );
     }
 
-    // 3. Get API key (org-wide: organization_settings é a fonte de verdade)
+    // 3. Get AI settings (org-wide: organization_settings é a fonte de verdade)
     const { data: orgSettings } = await supabase
         .from('organization_settings')
-        .select('ai_google_key, ai_model')
+        .select('ai_provider, ai_model, ai_google_key, ai_openai_key, ai_anthropic_key')
         .eq('organization_id', organizationId)
         .maybeSingle();
 
-    const apiKey: string | null = orgSettings?.ai_google_key ?? null;
+    const provider = (orgSettings?.ai_provider ?? 'google') as AIProvider;
     const modelId: string | null = orgSettings?.ai_model ?? null;
 
+    const apiKey: string | null =
+        provider === 'google'
+            ? (orgSettings?.ai_google_key ?? null)
+            : provider === 'openai'
+                ? (orgSettings?.ai_openai_key ?? null)
+                : (orgSettings?.ai_anthropic_key ?? null);
+
     if (!apiKey) {
-        return new Response('API key not configured. Configure em Configurações → Inteligência Artificial.', { status: 400 });
+        const providerLabel = provider === 'google' ? 'Google Gemini' : provider === 'openai' ? 'OpenAI' : 'Anthropic';
+        return new Response(
+            `API key não configurada para ${providerLabel}. Configure em Configurações → Inteligência Artificial.`,
+            { status: 400 }
+        );
     }
 
-    const resolvedModelId = modelId || 'gemini-2.5-flash';
+    const resolvedModelId =
+        modelId || (provider === 'google' ? 'gemini-2.5-flash' : provider === 'openai' ? 'gpt-4o' : 'claude-sonnet-4-5');
 
     // 5. Build type-safe context for agent
     const context: CRMCallOptions = {
         organizationId,
-        boardId: rawContext.boardId,
-        dealId: rawContext.dealId,
-        contactId: rawContext.contactId,
-        boardName: rawContext.boardName,
-        stages: rawContext.stages,
-        dealCount: rawContext.dealCount,
-        pipelineValue: rawContext.pipelineValue,
-        stagnantDeals: rawContext.stagnantDeals,
-        overdueDeals: rawContext.overdueDeals,
-        wonStage: rawContext.wonStage,
-        lostStage: rawContext.lostStage,
+        boardId: asOptionalString(rawContext.boardId),
+        dealId: asOptionalString(rawContext.dealId),
+        contactId: asOptionalString(rawContext.contactId),
+        boardName: asOptionalString(rawContext.boardName),
+        stages: asOptionalStages(rawContext.stages),
+        dealCount: asOptionalNumber(rawContext.dealCount),
+        pipelineValue: asOptionalNumber(rawContext.pipelineValue),
+        stagnantDeals: asOptionalNumber(rawContext.stagnantDeals),
+        overdueDeals: asOptionalNumber(rawContext.overdueDeals),
+        wonStage: asOptionalString(rawContext.wonStage),
+        lostStage: asOptionalString(rawContext.lostStage),
         userId: user.id,
-        userName: profile.nickname || profile.first_name || user.email,
+        userName: profile?.nickname || profile?.first_name || user.email,
         userRole: (profile as any)?.role,
     };
 
@@ -120,15 +158,30 @@ export async function POST(req: Request) {
             stagesCount: context.stages?.length,
             userName: context.userName,
         },
+        ai: {
+            provider,
+            modelId: resolvedModelId,
+        },
     });
 
     // 6. Create agent with API key and context
-    const agent = await createCRMAgent(context, user.id, apiKey, resolvedModelId);
+    let agent: Awaited<ReturnType<typeof createCRMAgent>>;
+    try {
+        agent = await createCRMAgent(context, user.id, apiKey, resolvedModelId, provider);
+    } catch (err: any) {
+        const message = String(err?.message || err || 'Erro desconhecido');
+        // Ex.: quando o provider é Gemini mas o modelId é OpenAI (ou vice-versa), o SDK retorna mensagens parecidas.
+        console.warn('[AI Chat] Failed to create agent/model:', { provider, modelId: resolvedModelId, message });
+        return new Response(
+            `Falha ao inicializar o modelo de IA (${provider} / ${resolvedModelId}). Verifique o provedor, o modelo selecionado e a chave de API.\n\nDetalhes: ${message}`,
+            { status: 400 }
+        );
+    }
 
     // 7. Return streaming response using AI SDK v6 createAgentUIStreamResponse
-    return createAgentUIStreamResponse({
+    return createAgentUIStreamResponse<CRMCallOptions>({
         agent,
-        messages,
+        uiMessages: messages,
         options: context,
     });
 }

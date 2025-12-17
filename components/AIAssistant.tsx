@@ -18,6 +18,8 @@ interface AIAssistantProps {
   onClose: () => void;
   variant?: 'overlay' | 'sidebar';
   activeBoard?: Board | null;
+  dealId?: string;
+  contactId?: string;
 }
 
 const AIAssistant: React.FC<AIAssistantProps> = ({
@@ -25,24 +27,34 @@ const AIAssistant: React.FC<AIAssistantProps> = ({
   onClose,
   variant = 'overlay',
   activeBoard,
+  dealId,
+  contactId,
 }) => {
   if (!isOpen) return null;
 
   const content = (
     <div className="relative flex h-full w-full flex-col">
-      <div className="absolute right-3 top-3 z-10">
-        <button
-          type="button"
-          onClick={onClose}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-slate-800/70 text-slate-200 hover:bg-slate-700/70"
-          aria-label="Fechar assistente"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
+      {variant === 'overlay' && (
+        <div className="absolute right-3 top-3 z-10">
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-slate-800/70 text-slate-200 hover:bg-slate-700/70"
+            aria-label="Fechar assistente"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       <div className="flex-1 min-h-0">
-        <UIChat boardId={activeBoard?.id} floating={false} startMinimized={false} />
+        <UIChat
+          boardId={activeBoard?.id}
+          dealId={dealId}
+          contactId={contactId}
+          floating={false}
+          startMinimized={false}
+        />
       </div>
     </div>
   );

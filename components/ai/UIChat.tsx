@@ -166,22 +166,44 @@ export function UIChat({
 
     const [input, setInput] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const messagesContainerRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
+
+    const focusInput = () => {
+        const el = inputRef.current;
+        if (!el) return;
+        try {
+            el.focus({ preventScroll: true });
+        } catch {
+            // Fallback para browsers que não suportam FocusOptions
+            el.focus();
+        }
+    };
 
     // UI state para cards de aprovação (agrupados).
     const [expandedApprovalGroups, setExpandedApprovalGroups] = useState<Record<string, boolean>>({});
     const [selectedApprovalsById, setSelectedApprovalsById] = useState<Record<string, boolean>>({});
     const [selectionModeByGroup, setSelectionModeByGroup] = useState<Record<string, boolean>>({});
 
-    // Auto-scroll to bottom
+    // Auto-scroll to bottom (somente dentro do container de mensagens)
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages]);
+        // Evita “pular”/rolar o painel ao abrir o chat (quando ainda não há mensagens)
+        if (messages.length === 0) return;
+
+        const el = messagesContainerRef.current;
+        if (!el) return;
+
+        try {
+            el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+        } catch {
+            el.scrollTop = el.scrollHeight;
+        }
+    }, [messages.length]);
 
     // Focus input when opened
     useEffect(() => {
         if (isOpen) {
-            inputRef.current?.focus();
+            focusInput();
         }
     }, [isOpen]);
 
@@ -228,13 +250,82 @@ export function UIChat({
     const hasPendingApprovals = pendingApprovalIds.length > 0;
     const canSend = status === 'ready' && !hasPendingApprovals;
 
+    const extractRequestId = (text: string): string | null => {
+        // Ex.: req_7a077671db1e471aa7f7b88ae828db92
+        const m = text.match(/\breq_[a-z0-9]+\b/i);
+        return m?.[0] ?? null;
+    };
+
+    const parseProviderError = (rawMessage: string) => {
+        const msg = rawMessage.trim();
+        const requestId = extractRequestId(msg);
+
+        const has = (re: RegExp) => re.test(msg);
+
+        // Heurísticas bem conservadoras: preferimos errar para “mensagem genérica”
+        // do que inventar causa.
+        const isToolApproval = /No tool output found for function call/i.test(msg);
+
+        const isOpenAIServerError =
+            has(/\bserver_error\b/i) ||
+            has(/"type"\s*:\s*"server_error"/i) ||
+            (has(/openai/i) && has(/\b5\d\d\b/));
+
+        const isRateLimit =
+            has(/rate[_ -]?limit/i) ||
+            has(/quota/i) ||
+            has(/\b429\b/);
+
+        const isAuth =
+            has(/invalid[_ -]?api[_ -]?key/i) ||
+            has(/\b401\b/) ||
+            has(/incorrect api key/i);
+
+        const isModelNotFound =
+            has(/model not found/i) ||
+            has(/does not exist/i) ||
+            has(/no such model/i);
+
+        return {
+            requestId,
+            isToolApproval,
+            isOpenAIServerError,
+            isRateLimit,
+            isAuth,
+            isModelNotFound,
+            raw: msg,
+        };
+    };
+
     const friendlyError = (() => {
         const msg = error?.message;
         if (!msg) return null;
-        if (/No tool output found for function call/i.test(msg)) {
+
+        const parsed = parseProviderError(msg);
+
+        if (parsed.isToolApproval) {
             return 'Existe uma confirmação pendente acima. Aprove ou negue a ação anterior antes de enviar uma nova mensagem.';
         }
-        return msg;
+
+        if (parsed.isAuth) {
+            return 'Falha de autenticação com o provedor de IA. Confira a chave em Configurações → Inteligência Artificial.';
+        }
+
+        if (parsed.isModelNotFound) {
+            return 'Modelo não encontrado para o provedor configurado. Confira o provedor/modelo em Configurações → Inteligência Artificial.';
+        }
+
+        if (parsed.isRateLimit) {
+            return 'A IA está limitando requisições (rate limit). Aguarde alguns segundos e tente novamente.';
+        }
+
+        if (parsed.isOpenAIServerError) {
+            const id = parsed.requestId ? ` (ID: ${parsed.requestId})` : '';
+            return `A OpenAI parece estar instável no momento (erro interno). Tente novamente em alguns segundos. Se persistir, troque para um modelo mais estável (ex.: gpt-4o) em Configurações → IA${id}.`;
+        }
+
+        // Fallback: manter a mensagem original (útil p/ debug), mas sem deixar 100% “crua”.
+        return parsed.requestId ? `${parsed.raw} (ID: ${parsed.requestId})` : parsed.raw;
     })();
 
     // Quick action buttons
@@ -403,7 +494,7 @@ export function UIChat({
             </div>
 
             {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4">
                 {messages.length === 0 && (
                     <div className="flex flex-col items-center justify-center h-full text-center space-y-4">
                         <div className="p-3 bg-gradient-to-br from-primary-500/20 to-violet-500/20 rounded-2xl">
@@ -421,7 +512,7 @@ export function UIChat({
                                     key={action.label}
                                     onClick={() => {
                                         setInput(action.prompt);
-                                        inputRef.current?.focus();
+                                        focusInput();
                                     }}
                                     className="px-3 py-1.5 bg-slate-800/60 hover:bg-slate-700/60 border border-slate-600/50 rounded-lg text-xs text-slate-300 transition-all"
                                 >

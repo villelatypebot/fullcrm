@@ -7,6 +7,171 @@ import { createCRMTools } from './tools';
 
 type AIProvider = 'google' | 'openai' | 'anthropic';
 
+function sleep(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function createRetryingFetch(
+    baseFetch: typeof fetch,
+    opts: {
+        label: string;
+        retries: number;
+        baseDelayMs: number;
+        maxDelayMs: number;
+        modelFallback?: {
+            /** Se o body JSON tiver esse model, substitui por `toModel` em retries (attempt >= 1). */
+            fromModels: string[];
+            toModel: string;
+            /** Só aplicar fallback em respostas com status retryable (default: 429 e 5xx) */
+            statuses?: number[];
+        };
+    }
+) {
+    const { label, retries, baseDelayMs, maxDelayMs } = opts;
+
+    const isRetryableStatus = (status: number) => {
+        // 408: timeout, 429: rate limit, 5xx: instabilidade do provedor.
+        return status === 408 || status === 429 || (status >= 500 && status <= 599);
+    };
+
+    const shouldApplyModelFallback = (status: number | undefined) => {
+        const fb = opts.modelFallback;
+        if (!fb) return false;
+        if (status == null) return false;
+
+        // Se o caller forneceu uma lista de status, respeitar.
+        if (Array.isArray(fb.statuses) && fb.statuses.length > 0) {
+            return fb.statuses.includes(status);
+        }
+
+        // Default: 429 e 5xx.
+        return status === 429 || (status >= 500 && status <= 599);
+    };
+
+    const maybeRewriteModelInBody = (body: unknown, attempt: number, lastStatus?: number) => {
+        const fb = opts.modelFallback;
+        if (!fb) return body;
+
+        // Só tentar fallback a partir do segundo attempt (attempt >= 1)
+        if (attempt < 1) return body;
+        if (!shouldApplyModelFallback(lastStatus)) return body;
+
+        if (typeof body !== 'string') return body;
+
+        try {
+            const parsed = JSON.parse(body);
+            const current = parsed?.model;
+            if (typeof current !== 'string') return body;
+            if (!fb.fromModels.includes(current)) return body;
+
+            parsed.model = fb.toModel;
+            const rewritten = JSON.stringify(parsed);
+
+            console.warn(`[${label}] Falling back model`, {
+                from: current,
+                to: fb.toModel,
+                attempt,
+                lastStatus,
+            });
+
+            return rewritten;
+        } catch {
+            return body;
+        }
+    };
+
+    const extractRequestId = (res: Response) => {
+        // OpenAI costuma enviar request-id em um desses headers.
+        return (
+            res.headers.get('x-request-id') ||
+            res.headers.get('openai-request-id') ||
+            res.headers.get('request-id') ||
+            undefined
+        );
+    };
+
+    const canRetryBody = (body: any): boolean => {
+        // Evitar retries quando o body é stream não-reutilizável.
+        // Strings/ArrayBuffer/Uint8Array/etc são OK.
+        if (body == null) return true;
+        if (typeof body === 'string') return true;
+        if (body instanceof ArrayBuffer) return true;
+        if (typeof Uint8Array !== 'undefined' && body instanceof Uint8Array) return true;
+        if (typeof Blob !== 'undefined' && body instanceof Blob) return true;
+        // FormData geralmente é reusável, mas em alguns ambientes pode falhar; preferir não retry.
+        if (typeof FormData !== 'undefined' && body instanceof FormData) return false;
+        // ReadableStream: não retry.
+        if (typeof ReadableStream !== 'undefined' && body instanceof ReadableStream) return false;
+        return false;
+    };
+
+    return async (input: RequestInfo | URL, init?: RequestInit) => {
+        const bodyRetryable = !(input instanceof Request) && !canRetryBody(init?.body);
+        if (bodyRetryable) {
+            // Melhor fazer uma chamada única do que tentar retry e falhar ao reusar body.
+            return baseFetch(input, init);
+        }
+
+        const makeRequest = (attempt: number, lastStatus?: number) => {
+            if (input instanceof Request) {
+                // Não temos como reescrever body com segurança em Request já construído.
+                // Nesses casos, só clone.
+                return input.clone();
+            }
+
+            const rewrittenBody = maybeRewriteModelInBody(init?.body, attempt, lastStatus);
+            const nextInit: RequestInit = rewrittenBody === init?.body ? init ?? {} : { ...(init ?? {}), body: rewrittenBody as any };
+            return new Request(input, nextInit);
+        };
+
+        let lastResponse: Response | undefined;
+        let lastStatus: number | undefined;
+        for (let attempt = 0; attempt <= retries; attempt++) {
+            if (init?.signal?.aborted) {
+                // Respeitar abort sem tentar novamente.
+                throw new DOMException('The operation was aborted.', 'AbortError');
+            }
+
+            try {
+                const req = makeRequest(attempt, lastStatus);
+                const res = await baseFetch(req);
+                lastResponse = res;
+                lastStatus = res.status;
+
+                if (!isRetryableStatus(res.status) || attempt === retries) {
+                    return res;
+                }
+
+                const requestId = extractRequestId(res);
+                const delay = Math.min(maxDelayMs, baseDelayMs * Math.pow(2, attempt));
+                const jitter = Math.floor(Math.random() * 120);
+                console.warn(`[${label}] Retryable response (${res.status}). Retrying...`, {
+                    attempt: attempt + 1,
+                    retries,
+                    delayMs: delay + jitter,
+                    requestId,
+                });
+                await sleep(delay + jitter);
+            } catch (err: any) {
+                if (attempt === retries) throw err;
+
+                const delay = Math.min(maxDelayMs, baseDelayMs * Math.pow(2, attempt));
+                const jitter = Math.floor(Math.random() * 120);
+                console.warn(`[${label}] Fetch error. Retrying...`, {
+                    attempt: attempt + 1,
+                    retries,
+                    delayMs: delay + jitter,
+                    message: String(err?.message || err),
+                });
+                await sleep(delay + jitter);
+            }
+        }
+
+        // Segurança: nunca deve chegar aqui.
+        return lastResponse ?? baseFetch(input, init);
+    };
+}
+
 /**
  * Build context prompt from call options
  * This injects rich context into the system prompt at runtime
@@ -125,7 +290,23 @@ export async function createCRMAgent(
                 return google(modelId);
             }
             case 'openai': {
-                const openai = createOpenAI({ apiKey });
+                const openai = createOpenAI({
+                    apiKey,
+                    fetch: createRetryingFetch(fetch, {
+                        label: 'OpenAI',
+                        retries: 2,
+                        baseDelayMs: 350,
+                        maxDelayMs: 2000,
+                        modelFallback: {
+                            // Muitos modelos "preview"/novos oscilam mais; aqui fazemos fallback automático
+                            // para um modelo estável sem exigir intervenção do usuário.
+                            fromModels: [modelId],
+                            toModel: 'gpt-4o',
+                            // Default já cobre 429/5xx; manter explícito só para clareza.
+                            statuses: [429, 500, 502, 503, 504],
+                        },
+                    }),
+                });
                 return openai(modelId);
             }
             case 'anthropic': {
