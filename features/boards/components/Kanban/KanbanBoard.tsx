@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { DealView, DealStatus, BoardStage } from '@/types';
+import { DealView, BoardStage } from '@/types';
 import { DealCard } from './DealCard';
 import { isDealRotting, getActivityStatus } from '@/features/boards/hooks/useBoardsController';
 import { MoveToStageModal } from '../Modals/MoveToStageModal';
@@ -157,8 +157,8 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                   deal={deal}
                   isRotting={
                     isDealRotting(deal) &&
-                    deal.status !== DealStatus.CLOSED_WON &&
-                    deal.status !== DealStatus.CLOSED_LOST
+                    !deal.isWon &&
+                    !deal.isLost
                   }
                   activityStatus={getActivityStatus(deal)}
                   isDragging={draggingId === deal.id}

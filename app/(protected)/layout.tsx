@@ -1,5 +1,7 @@
 'use client'
 
+import { usePathname } from 'next/navigation'
+
 import { QueryProvider } from '@/lib/query'
 import { ToastProvider } from '@/context/ToastContext'
 import { ThemeProvider } from '@/context/ThemeContext'
@@ -13,6 +15,9 @@ export default function ProtectedLayout({
 }: {
     children: React.ReactNode
 }) {
+    const pathname = usePathname()
+    const shouldUseAppShell = pathname !== '/setup'
+
     return (
         <QueryProvider>
             <ToastProvider>
@@ -20,9 +25,7 @@ export default function ProtectedLayout({
                     <AuthProvider>
                         <CRMProvider>
                             <AIProvider>
-                                <Layout>
-                                    {children}
-                                </Layout>
+                                {shouldUseAppShell ? <Layout>{children}</Layout> : children}
                             </AIProvider>
                         </CRMProvider>
                     </AuthProvider>

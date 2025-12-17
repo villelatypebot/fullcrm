@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Activity, Deal, DealStatus, DealView, Contact } from '@/types';
-import { ParsedAction } from '@/services/geminiService';
+import { Activity, Deal, DealView, Contact } from '@/types';
+import type { ParsedAction } from '@/types/aiActions';
 import { useToast } from '@/context/ToastContext';
 import { usePersistedState } from '@/hooks/usePersistedState';
 import {
@@ -48,7 +48,7 @@ export interface FocusItem {
 }
 
 export const useInboxController = () => {
-  // Auth for tenant organization_id
+  // Auth (single-tenant com multiusuário). Mantemos profile para permissões/owner.
   const { profile } = useAuth();
 
   // TanStack Query hooks
@@ -168,7 +168,7 @@ export const useInboxController = () => {
   const stalledDeals = useMemo(
     () =>
       deals.filter(d => {
-        const isClosed = d.status === DealStatus.CLOSED_WON || d.status === DealStatus.CLOSED_LOST;
+        const isClosed = d.isWon || d.isLost;
         const lastUpdate = new Date(d.updatedAt);
         return !isClosed && lastUpdate < sevenDaysAgo;
       }),
@@ -179,7 +179,7 @@ export const useInboxController = () => {
   const upsellDeals = useMemo(
     () =>
       deals.filter(d => {
-        const isWon = d.status === DealStatus.CLOSED_WON;
+        const isWon = d.isWon;
         const lastUpdate = new Date(d.updatedAt);
         return isWon && lastUpdate < thirtyDaysAgo;
       }),

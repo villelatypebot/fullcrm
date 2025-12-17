@@ -42,6 +42,22 @@ CREATE TABLE IF NOT EXISTS public.organizations (
 ALTER TABLE public.organizations ENABLE ROW LEVEL SECURITY;
 
 -- -----------------------------------------------------------------------------
+-- 2.1 ORGANIZATION_SETTINGS (Config global de IA por organização)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.organization_settings (
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE PRIMARY KEY,
+    ai_provider text DEFAULT 'google',
+    ai_model text DEFAULT 'gemini-2.5-flash',
+    ai_google_key text,
+    ai_openai_key text,
+    ai_anthropic_key text,
+    created_at timestamptz DEFAULT now(),
+    updated_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE public.organization_settings ENABLE ROW LEVEL SECURITY;
+
+-- -----------------------------------------------------------------------------
 -- 3. PROFILES (Usuários - estende auth.users)
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.profiles (
@@ -216,14 +232,14 @@ CREATE TABLE IF NOT EXISTS public.deals (
     tags TEXT[] DEFAULT '{}',
     last_stage_change_date TIMESTAMPTZ,
     custom_fields JSONB DEFAULT '{}',
-    is_won BOOLEAN DEFAULT FALSE,
-    is_lost BOOLEAN DEFAULT FALSE,
+    is_won BOOLEAN NOT NULL DEFAULT FALSE,
+    is_lost BOOLEAN NOT NULL DEFAULT FALSE,
     closed_at TIMESTAMPTZ,
     deleted_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     owner_id UUID REFERENCES public.profiles(id),
-    organization_id UUID REFERENCES public.organizations(id) ON DELETE CASCADE
+    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE
 );
 
 ALTER TABLE public.deals ENABLE ROW LEVEL SECURITY;
@@ -555,6 +571,21 @@ BEGIN
 END;
 $$;
 
+-- Helper: retorna a única org ativa (ou NULL se não existir)
+CREATE OR REPLACE FUNCTION public.get_singleton_organization_id()
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT id
+    FROM public.organizations
+    WHERE deleted_at IS NULL
+    ORDER BY created_at ASC
+    LIMIT 1;
+$$;
+
 -- Estatísticas do Dashboard (simplificado - sem filtro de tenant)
 CREATE OR REPLACE FUNCTION public.get_dashboard_stats()
 RETURNS JSON
@@ -701,21 +732,33 @@ $$;
 -- Trigger: criar profile quando usuário se cadastra
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
+DECLARE
+    v_org_id uuid;
 BEGIN
+    v_org_id := (new.raw_user_meta_data->>'organization_id')::uuid;
+    IF v_org_id IS NULL THEN
+        v_org_id := public.get_singleton_organization_id();
+    END IF;
+
+    IF v_org_id IS NULL THEN
+        RAISE EXCEPTION 'Nenhuma organization encontrada. Rode o setup inicial antes de criar usuários.';
+    END IF;
+
     -- Create Profile
     INSERT INTO public.profiles (id, email, name, avatar, role, organization_id)
     VALUES (
-        new.id, 
-        new.email, 
+        new.id,
+        new.email,
         COALESCE(new.raw_user_meta_data->>'name', new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
         new.raw_user_meta_data->>'avatar_url',
         COALESCE(new.raw_user_meta_data->>'role', 'user'),
-        (new.raw_user_meta_data->>'organization_id')::uuid
+        v_org_id
     );
 
-    -- Create User Settings (Essential for User Preferences)
+    -- Create User Settings (idempotente)
     INSERT INTO public.user_settings (user_id)
-    VALUES (new.id);
+    VALUES (new.id)
+    ON CONFLICT (user_id) DO NOTHING;
 
     RETURN new;
 END;
@@ -725,6 +768,22 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
     AFTER INSERT ON auth.users
     FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+
+-- Trigger: criar organization_settings automaticamente
+CREATE OR REPLACE FUNCTION public.handle_new_organization()
+RETURNS trigger AS $$
+BEGIN
+    INSERT INTO public.organization_settings (organization_id)
+    VALUES (new.id)
+    ON CONFLICT (organization_id) DO NOTHING;
+    RETURN new;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_org_created ON public.organizations;
+CREATE TRIGGER on_org_created
+    AFTER INSERT ON public.organizations
+    FOR EACH ROW EXECUTE FUNCTION public.handle_new_organization();
 
 -- Cascade soft delete: boards -> deals
 CREATE OR REPLACE FUNCTION cascade_soft_delete_deals()
@@ -1257,6 +1316,7 @@ ALTER TABLE boards ADD COLUMN IF NOT EXISTS lost_stage_id UUID REFERENCES board_
 -- 2. Add Stay In Stage (Archive) Flags
 ALTER TABLE boards ADD COLUMN IF NOT EXISTS won_stay_in_stage BOOLEAN DEFAULT FALSE;
 ALTER TABLE boards ADD COLUMN IF NOT EXISTS lost_stay_in_stage BOOLEAN DEFAULT FALSE;
+
 -- Trigger: Sync email from auth.users to public.profiles
 CREATE OR REPLACE FUNCTION public.handle_user_email_update()
 RETURNS trigger AS $$
@@ -1327,9 +1387,75 @@ CREATE POLICY "Enable all access for authenticated users" ON public.ai_audio_not
 CREATE POLICY "Enable all access for authenticated users" ON public.ai_suggestion_interactions FOR ALL TO authenticated USING (true);
 
 -- System Tables
-CREATE POLICY "Enable all access for authenticated users" ON public.organization_invites FOR ALL TO authenticated USING (true);
--- Allow anon to validate invite tokens (before login)
-CREATE POLICY "Allow public to validate invite tokens" ON public.organization_invites FOR SELECT TO anon USING (used_at IS NULL);
+-- Organization Invites (hardened)
+DROP POLICY IF EXISTS "Enable all access for authenticated users" ON public.organization_invites;
+DROP POLICY IF EXISTS "Allow public to validate invite tokens" ON public.organization_invites;
+
+DROP POLICY IF EXISTS "Admins can manage organization invites" ON public.organization_invites;
+CREATE POLICY "Admins can manage organization invites"
+    ON public.organization_invites
+    FOR ALL
+    TO authenticated
+    USING (
+        auth.uid() IN (
+            SELECT id FROM public.profiles
+            WHERE organization_id = organization_invites.organization_id
+            AND role = 'admin'
+        )
+    )
+    WITH CHECK (
+        auth.uid() IN (
+            SELECT id FROM public.profiles
+            WHERE organization_id = organization_invites.organization_id
+            AND role = 'admin'
+        )
+    );
+
+DROP POLICY IF EXISTS "Members can view organization invites" ON public.organization_invites;
+CREATE POLICY "Members can view organization invites"
+    ON public.organization_invites
+    FOR SELECT
+    TO authenticated
+    USING (
+        auth.uid() IN (
+            SELECT id FROM public.profiles
+            WHERE organization_id = organization_invites.organization_id
+        )
+    );
+
+-- Organization Settings
+DROP POLICY IF EXISTS "Admins can manage org settings" ON public.organization_settings;
+CREATE POLICY "Admins can manage org settings"
+        ON public.organization_settings
+        FOR ALL
+        TO authenticated
+        USING (
+                auth.uid() IN (
+                        SELECT id FROM public.profiles 
+                        WHERE organization_id = organization_settings.organization_id 
+                        AND role = 'admin'
+                )
+        )
+        WITH CHECK (
+                auth.uid() IN (
+                        SELECT id FROM public.profiles 
+                        WHERE organization_id = organization_settings.organization_id 
+                        AND role = 'admin'
+                )
+        );
+
+DROP POLICY IF EXISTS "Members can view org settings" ON public.organization_settings;
+CREATE POLICY "Members can view org settings"
+        ON public.organization_settings
+        FOR SELECT
+        TO authenticated
+        USING (
+                auth.uid() IN (
+                        SELECT id FROM public.profiles 
+                        WHERE organization_id = organization_settings.organization_id
+                )
+        );
+
 CREATE POLICY "Enable all access for authenticated users" ON public.system_notifications FOR ALL TO authenticated USING (true);
 CREATE POLICY "Enable all access for authenticated users" ON public.rate_limits FOR ALL TO authenticated USING (true);
 CREATE POLICY "Enable all access for authenticated users" ON public.user_consents FOR ALL TO authenticated USING (true);
@@ -1403,67 +1529,3 @@ GRANT EXECUTE ON FUNCTION public.mark_deal_lost TO authenticated;
 GRANT EXECUTE ON FUNCTION public.reopen_deal TO authenticated;
 GRANT EXECUTE ON FUNCTION log_audit_event TO authenticated;
 GRANT EXECUTE ON FUNCTION get_contact_stage_counts() TO authenticated;
--- Migration: Create Organization Settings (Global AI Config)
--- Timestamp: 20251210153000
-
--- 1. Create table
-CREATE TABLE IF NOT EXISTS public.organization_settings (
-    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE PRIMARY KEY,
-    ai_provider text DEFAULT 'google',
-    ai_model text DEFAULT 'gemini-2.5-flash',
-    ai_google_key text,
-    ai_openai_key text,
-    ai_anthropic_key text,
-    created_at timestamptz DEFAULT now(),
-    updated_at timestamptz DEFAULT now()
-);
-
--- 2. Enable RLS
-ALTER TABLE public.organization_settings ENABLE ROW LEVEL SECURITY;
-
--- 3. RLS Policies
--- Admins can do everything
-CREATE POLICY "Admins can manage org settings"
-    ON public.organization_settings
-    FOR ALL
-    USING (
-        auth.uid() IN (
-            SELECT id FROM public.profiles 
-            WHERE organization_id = organization_settings.organization_id 
-            AND role = 'admin'
-        )
-    );
-
--- Regular users can VIEW settings (to know if AI is active, but maybe not read keys directly? 
--- Actually for Frontend to show "Key Configured" we might need read access.
--- But safest is Backend read only. Let's allow READ for members.)
-CREATE POLICY "Members can view org settings"
-    ON public.organization_settings
-    FOR SELECT
-    USING (
-        auth.uid() IN (
-            SELECT id FROM public.profiles 
-            WHERE organization_id = organization_settings.organization_id
-        )
-    );
-
--- 4. Auto-create settings for existing organizations
-INSERT INTO public.organization_settings (organization_id)
-SELECT id FROM public.organizations
-WHERE id NOT IN (SELECT organization_id FROM public.organization_settings);
-
--- 5. Trigger to create settings for NEW organizations
-CREATE OR REPLACE FUNCTION public.handle_new_organization()
-RETURNS trigger AS $$
-BEGIN
-    INSERT INTO public.organization_settings (organization_id)
-    VALUES (new.id);
-    RETURN new;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Bind trigger (assuming organizations table exists, trigger might need to be on insert)
-DROP TRIGGER IF EXISTS on_org_created ON public.organizations;
-CREATE TRIGGER on_org_created
-    AFTER INSERT ON public.organizations
-    FOR EACH ROW EXECUTE FUNCTION public.handle_new_organization();

@@ -88,7 +88,7 @@ export const CreateDealModal: React.FC<CreateDealModalProps> = ({
             title: newDealData.title,
             companyId: '', // Será criado pelo CRMContext
             contactId: '', // Será criado pelo CRMContext
-            boardId: activeBoardId || '',
+            boardId: activeBoardId || activeBoard.id,
             ownerId: user?.id || '',
             value: Number(newDealData.value) || 0,
             items: [],
@@ -181,6 +181,13 @@ export const CreateDealModal: React.FC<CreateDealModalProps> = ({
                                 placeholder="email@exemplo.com"
                                 value={newDealData.email}
                                 onChange={e => setNewDealData({ ...newDealData, email: e.target.value })}
+                            />
+                            <input
+                                type="tel"
+                                className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary-500"
+                                placeholder="Telefone (opcional)"
+                                value={newDealData.phone}
+                                onChange={e => setNewDealData({ ...newDealData, phone: e.target.value })}
                             />
                         </div>
                     </div>

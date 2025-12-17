@@ -1,5 +1,4 @@
 import React from 'react';
-import { DealStatus } from '@/types';
 import { useDeals } from '@/lib/query/hooks/useDealsQuery';
 import { useContacts } from '@/lib/query/hooks/useContactsQuery';
 import { useBoards, useDefaultBoard } from '@/lib/query/hooks/useBoardsQuery';
@@ -291,13 +290,11 @@ export const useDashboardMetrics = (period: PeriodFilter = 'this_month', boardId
     };
 
     if (stages.length === 0) {
-      // Fallback para status antigos se não tiver stages
+      // Fallback simples se não tiver stages
       return [
-        { name: 'Novos', count: deals.filter(l => l.status === DealStatus.NEW).length, fill: '#3b82f6' },
-        { name: 'Contatos', count: deals.filter(l => l.status === DealStatus.CONTACTED).length, fill: '#eab308' },
-        { name: 'Proposta', count: deals.filter(l => l.status === DealStatus.PROPOSAL).length, fill: '#a855f7' },
-        { name: 'Negoc.', count: deals.filter(l => l.status === DealStatus.NEGOTIATION).length, fill: '#f97316' },
-        { name: 'Ganho', count: deals.filter(l => l.status === DealStatus.CLOSED_WON).length, fill: '#22c55e' },
+        { name: 'Em aberto', count: deals.filter(d => !d.isWon && !d.isLost).length, fill: '#3b82f6' },
+        { name: 'Ganho', count: deals.filter(d => d.isWon).length, fill: '#22c55e' },
+        { name: 'Perdido', count: deals.filter(d => d.isLost).length, fill: '#ef4444' },
       ];
     }
 

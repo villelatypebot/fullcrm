@@ -1,5 +1,5 @@
 import React from 'react';
-import { DealView, DealStatus, CustomFieldDefinition, BoardStage } from '@/types';
+import { DealView, CustomFieldDefinition, BoardStage } from '@/types';
 import { ActivityStatusIcon } from './ActivityStatusIcon';
 import { getActivityStatus } from '@/features/boards/hooks/useBoardsController';
 
@@ -78,6 +78,7 @@ export const KanbanList: React.FC<KanbanListProps> = ({
                       setOpenActivityMenuId(openActivityMenuId === deal.id ? null : deal.id);
                     }}
                     onQuickAdd={type => handleQuickAddActivity(deal.id, type, deal.title)}
+                    onRequestClose={() => setOpenActivityMenuId(null)}
                   />
                 </td>
                 <td className="px-6 py-3 font-bold text-slate-900 dark:text-white">{deal.title}</td>
@@ -85,9 +86,9 @@ export const KanbanList: React.FC<KanbanListProps> = ({
                 <td className="px-6 py-3">
                   <span
                     className={`text-xs font-bold px-2 py-1 rounded ${
-                      deal.status === DealStatus.CLOSED_WON
+                      deal.isWon
                         ? 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-300'
-                        : deal.status === DealStatus.CLOSED_LOST
+                        : deal.isLost
                           ? 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300'
                           : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
                     } `}

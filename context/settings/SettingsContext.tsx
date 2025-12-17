@@ -134,17 +134,39 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
     setError(null);
 
     try {
-      // Fetch user settings
+      // Preferências por usuário (mantidas em user_settings)
       const { data: settings } = await settingsService.get();
       if (settings) {
-        setAiProviderState(settings.aiProvider);
-        setAiGoogleKeyState(settings.aiGoogleKey);
-        setAiOpenaiKeyState(settings.aiOpenaiKey);
-        setAiAnthropicKeyState(settings.aiAnthropicKey);
-        setAiModelState(settings.aiModel);
         setAiThinkingState(settings.aiThinking);
         setAiSearchState(settings.aiSearch);
         setAiAnthropicCachingState(settings.aiAnthropicCaching);
+      }
+
+      // Config org-wide (fonte de verdade): provider/model/keys em organization_settings
+      const aiRes = await fetch('/api/settings/ai', {
+        method: 'GET',
+        headers: { accept: 'application/json' },
+        credentials: 'include',
+      });
+
+      if (aiRes.ok) {
+        const aiData = (await aiRes.json()) as {
+          aiProvider: AIConfig['provider'];
+          aiModel: string;
+          aiGoogleKey: string;
+          aiOpenaiKey: string;
+          aiAnthropicKey: string;
+        };
+
+        setAiProviderState(aiData.aiProvider);
+        setAiModelState(aiData.aiModel);
+        setAiGoogleKeyState(aiData.aiGoogleKey);
+        setAiOpenaiKeyState(aiData.aiOpenaiKey);
+        setAiAnthropicKeyState(aiData.aiAnthropicKey);
+      } else {
+        const body = await aiRes.json().catch(() => null);
+        const message = body?.error || `Falha ao carregar config de IA (HTTP ${aiRes.status})`;
+        console.warn('[Settings] Falha ao carregar config org-wide de IA:', message);
       }
 
       // Fetch lifecycle stages
@@ -243,41 +265,57 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
     }
   }, []);
 
+  const updateOrgAISettings = useCallback(async (updates: Record<string, unknown>) => {
+    const res = await fetch('/api/settings/ai', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(updates),
+    });
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      const message = body?.error || `Falha ao salvar config de IA (HTTP ${res.status})`;
+      setError(message);
+      throw new Error(message);
+    }
+  }, []);
+
   const setAiProvider = useCallback(
     async (provider: AIConfig['provider']) => {
+      await updateOrgAISettings({ aiProvider: provider });
       setAiProviderState(provider);
-      await updateSettings({ aiProvider: provider });
     },
-    [updateSettings]
+    [updateOrgAISettings]
   );
 
   const setAiApiKey = useCallback(
     async (key: string) => {
-      // Update the correct provider's key
+      // Update the correct provider's key (org-wide)
       switch (aiProvider) {
         case 'google':
+          await updateOrgAISettings({ aiGoogleKey: key });
           setAiGoogleKeyState(key);
-          await updateSettings({ aiGoogleKey: key });
           break;
         case 'openai':
+          await updateOrgAISettings({ aiOpenaiKey: key });
           setAiOpenaiKeyState(key);
-          await updateSettings({ aiOpenaiKey: key });
           break;
         case 'anthropic':
+          await updateOrgAISettings({ aiAnthropicKey: key });
           setAiAnthropicKeyState(key);
-          await updateSettings({ aiAnthropicKey: key });
           break;
       }
     },
-    [updateSettings, aiProvider]
+    [updateOrgAISettings, aiProvider]
   );
 
   const setAiModel = useCallback(
     async (model: string) => {
+      await updateOrgAISettings({ aiModel: model });
       setAiModelState(model);
-      await updateSettings({ aiModel: model });
     },
-    [updateSettings]
+    [updateOrgAISettings]
   );
 
   const setAiThinking = useCallback(

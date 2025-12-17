@@ -9,6 +9,8 @@ interface ActivityStatusIconProps {
     isOpen: boolean;
     onToggle: (e: React.MouseEvent) => void;
     onQuickAdd: (type: 'CALL' | 'MEETING' | 'EMAIL') => void;
+    /** Optional callback to close the menu without needing an event object */
+    onRequestClose?: () => void;
     /** Callback for keyboard-accessible move to stage action */
     onMoveToStage?: () => void;
 }
@@ -29,6 +31,7 @@ export const ActivityStatusIcon: React.FC<ActivityStatusIconProps> = ({
     isOpen,
     onToggle,
     onQuickAdd,
+    onRequestClose,
     onMoveToStage
 }) => {
     const Icon = type === 'CALL' ? Phone : type === 'EMAIL' ? Mail : type === 'MEETING' ? Calendar : ChevronRight;
@@ -110,7 +113,7 @@ export const ActivityStatusIcon: React.FC<ActivityStatusIconProps> = ({
                                 role="menuitem"
                                 onClick={() => {
                                     onMoveToStage();
-                                    onToggle({} as React.MouseEvent); // Close menu
+                                    onRequestClose?.();
                                 }}
                                 className="w-full text-left px-3 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/5 rounded flex items-center gap-2 focus-visible-ring"
                             >
@@ -124,7 +127,10 @@ export const ActivityStatusIcon: React.FC<ActivityStatusIconProps> = ({
                         <button 
                             type="button"
                             role="menuitem"
-                            onClick={() => onQuickAdd('CALL')} 
+                            onClick={() => {
+                                onQuickAdd('CALL');
+                                onRequestClose?.();
+                            }}
                             className="w-full text-left px-3 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/5 rounded flex items-center gap-2 focus-visible-ring"
                         >
                             <Phone size={14} className="text-blue-500" aria-hidden="true" /> Ligar amanhã
@@ -132,7 +138,10 @@ export const ActivityStatusIcon: React.FC<ActivityStatusIconProps> = ({
                         <button 
                             type="button"
                             role="menuitem"
-                            onClick={() => onQuickAdd('EMAIL')} 
+                            onClick={() => {
+                                onQuickAdd('EMAIL');
+                                onRequestClose?.();
+                            }}
                             className="w-full text-left px-3 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/5 rounded flex items-center gap-2 focus-visible-ring"
                         >
                             <Mail size={14} className="text-purple-500" aria-hidden="true" /> Email amanhã
@@ -140,7 +149,10 @@ export const ActivityStatusIcon: React.FC<ActivityStatusIconProps> = ({
                         <button 
                             type="button"
                             role="menuitem"
-                            onClick={() => onQuickAdd('MEETING')} 
+                            onClick={() => {
+                                onQuickAdd('MEETING');
+                                onRequestClose?.();
+                            }}
                             className="w-full text-left px-3 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/5 rounded flex items-center gap-2 focus-visible-ring"
                         >
                             <Calendar size={14} className="text-orange-500" aria-hidden="true" /> Reunião amanhã

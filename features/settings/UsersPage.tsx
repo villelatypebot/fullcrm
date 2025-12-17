@@ -56,22 +56,9 @@ export const UsersPage: React.FC = () => {
     const [expirationDays, setExpirationDays] = useState<number | null>(7); // 7 days default, null = never
 
     const sb = supabase;
-    if (!sb) {
-        return (
-            <div className="min-h-[60vh] flex items-center justify-center">
-                <div className="text-center max-w-md">
-                    <h2 className="text-xl font-semibold text-slate-900 dark:text-white mb-2">
-                        Configuração incompleta
-                    </h2>
-                    <p className="text-slate-500 dark:text-slate-400">
-                        O Supabase não está configurado neste ambiente. Configure as variáveis de ambiente para gerenciar usuários.
-                    </p>
-                </div>
-            </div>
-        );
-    }
 
     const fetchUsers = async () => {
+        if (!sb) return;
         try {
             // Usa Edge Function para buscar usuários com status
             const { data, error } = await sb.functions.invoke('list-users');
@@ -98,6 +85,7 @@ export const UsersPage: React.FC = () => {
     };
 
     const fetchActiveInvites = async () => {
+        if (!sb) return;
         try {
             // Fetch invites that are either not expired OR have null expiration (never expires)
             // Supabase query for "expires_at > now OR expires_at is null" is tricky with simple syntax
@@ -123,13 +111,29 @@ export const UsersPage: React.FC = () => {
 
     useEffect(() => {
         fetchUsers();
-    }, []);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sb]);
 
     useEffect(() => {
         if (isModalOpen) {
             fetchActiveInvites();
         }
-    }, [isModalOpen]);
+    }, [isModalOpen, sb]);
+
+    if (!sb) {
+        return (
+            <div className="min-h-[60vh] flex items-center justify-center">
+                <div className="text-center max-w-md">
+                    <h2 className="text-xl font-semibold text-slate-900 dark:text-white mb-2">
+                        Configuração incompleta
+                    </h2>
+                    <p className="text-slate-500 dark:text-slate-400">
+                        O Supabase não está configurado neste ambiente. Configure as variáveis de ambiente para gerenciar usuários.
+                    </p>
+                </div>
+            </div>
+        );
+    }
 
     const closeModal = () => {
         setIsModalOpen(false);
@@ -186,7 +190,7 @@ export const UsersPage: React.FC = () => {
     };
 
     const copyLink = (token: string) => {
-        const link = `${window.location.origin}/#/join?token=${token}`;
+        const link = `${window.location.origin}/join?token=${token}`;
         navigator.clipboard.writeText(link);
         addToast('Link copiado!', 'success');
     };

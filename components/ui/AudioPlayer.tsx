@@ -18,6 +18,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src, variant = 'received' }) 
     const audioRef = useRef<HTMLAudioElement>(null);
     const [isPlaying, setIsPlaying] = useState(false);
     const [progress, setProgress] = useState(0);
+    const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
     const [waveform, setWaveform] = useState<number[]>([]);
 
@@ -33,16 +34,24 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src, variant = 'received' }) 
         if (!audio) return;
 
         const updateProgress = () => {
-            setProgress((audio.currentTime / audio.duration) * 100);
+            const safeDuration = audio.duration || 0;
+            const safeCurrentTime = audio.currentTime || 0;
+            setCurrentTime(safeCurrentTime);
+            if (!safeDuration) {
+                setProgress(0);
+                return;
+            }
+            setProgress((safeCurrentTime / safeDuration) * 100);
         };
 
         const updateDuration = () => {
-            setDuration(audio.duration);
+            setDuration(audio.duration || 0);
         };
 
         const onEnded = () => {
             setIsPlaying(false);
             setProgress(0);
+            setCurrentTime(0);
         };
 
         audio.addEventListener('timeupdate', updateProgress);
@@ -122,7 +131,6 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src, variant = 'received' }) 
     };
 
     const currentStyle = styles[variant];
-    const currentTime = audioRef.current?.currentTime || 0;
 
     return (
         <div className="flex items-center gap-3 min-w-[220px] py-1 select-none group" role="group" aria-label="Player de áudio">

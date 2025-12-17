@@ -1,12 +1,3 @@
-import type { AxeResults } from 'axe-core';
-
-declare module 'vitest' {
-  interface Assertion<T> {
-    toHaveNoViolations(): void;
-  }
-  interface AsymmetricMatchersContaining {
-    toHaveNoViolations(): void;
-  }
-}
-
+// Deprecated: replaced by `vitest-axe.ts` to avoid triple-slash references.
+// Kept intentionally empty.
 export {};

@@ -7,7 +7,7 @@ import {
   generateBoardStrategy,
   refineBoardWithAI,
   GeneratedBoard,
-} from '@/services/geminiService';
+} from '@/lib/ai/actionsClient';
 import { isConsentError } from '@/lib/supabase/ai-proxy';
 import { Board, BoardStage } from '@/types';
 import { useCRM } from '@/context/CRMContext';

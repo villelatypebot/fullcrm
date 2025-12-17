@@ -9,7 +9,7 @@ import { KanbanBoard } from './Kanban/KanbanBoard';
 import { KanbanList } from './Kanban/KanbanList';
 import { DeleteBoardModal } from './Modals/DeleteBoardModal';
 import { LossReasonModal } from '@/components/ui/LossReasonModal';
-import { DealView, CustomFieldDefinition, DealStatus, Board, BoardStage } from '@/types';
+import { DealView, CustomFieldDefinition, Board, BoardStage } from '@/types';
 
 interface PipelineViewProps {
   // Boards

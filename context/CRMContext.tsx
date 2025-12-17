@@ -32,7 +32,6 @@ import { useAuth } from '@/context/AuthContext';
 import {
   Deal,
   Activity,
-  DealStatus,
   Company,
   Contact,
   DealView,
@@ -587,8 +586,8 @@ const CRMInnerProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
 
     const stagnantDeals = rawDeals.filter(
       d =>
-        d.status !== DealStatus.CLOSED_WON &&
-        d.status !== DealStatus.CLOSED_LOST &&
+        !d.isWon &&
+        !d.isLost &&
         (!d.lastStageChangeDate || new Date(d.lastStageChangeDate) < tenDaysAgo)
     );
 

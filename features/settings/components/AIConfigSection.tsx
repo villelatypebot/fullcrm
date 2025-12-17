@@ -144,8 +144,12 @@ export const AIConfigSection: React.FC = () => {
 
         if (result.valid) {
             setValidationStatus('valid');
-            await setAiApiKey(localApiKey);
-            showToast('Chave de API validada e salva!', 'success');
+            try {
+                await setAiApiKey(localApiKey);
+                showToast('Chave de API validada e salva!', 'success');
+            } catch (err) {
+                showToast(err instanceof Error ? err.message : 'Falha ao salvar chave de API', 'error');
+            }
         } else {
             setValidationStatus('invalid');
             setValidationError(result.error || 'Chave inválida');
@@ -157,8 +161,12 @@ export const AIConfigSection: React.FC = () => {
         setLocalApiKey('');
         setValidationStatus('idle');
         setValidationError(null);
-        await setAiApiKey('');
-        showToast('Chave de API removida', 'success');
+        try {
+            await setAiApiKey('');
+            showToast('Chave de API removida', 'success');
+        } catch (err) {
+            showToast(err instanceof Error ? err.message : 'Falha ao remover chave de API', 'error');
+        }
     };
 
     const hasUnsavedChanges = localApiKey !== aiApiKey;
@@ -202,16 +210,20 @@ export const AIConfigSection: React.FC = () => {
 
     const currentProvider = providers.find(p => p.id === aiProvider);
 
-    const handleProviderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const handleProviderChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
         const newProviderId = e.target.value as 'google' | 'openai' | 'anthropic';
-        setAiProvider(newProviderId);
+        try {
+            await setAiProvider(newProviderId);
 
-        // Auto-set recommended model (first one in list usually, or one marked recommended)
-        const providerData = providers.find(p => p.id === newProviderId);
-        if (providerData && providerData.models.length > 0) {
-            // Prefer models with "Recomendado" in description, else first one
-            const recommended = providerData.models.find(m => m.description.includes('Recomendado')) || providerData.models[0];
-            setAiModel(recommended.id);
+            // Auto-set recommended model (first one in list usually, or one marked recommended)
+            const providerData = providers.find(p => p.id === newProviderId);
+            if (providerData && providerData.models.length > 0) {
+                // Prefer models with "Recomendado" in description, else first one
+                const recommended = providerData.models.find(m => m.description.includes('Recomendado')) || providerData.models[0];
+                await setAiModel(recommended.id);
+            }
+        } catch (err) {
+            showToast(err instanceof Error ? err.message : 'Falha ao atualizar provedor de IA', 'error');
         }
     };
 
@@ -445,8 +457,8 @@ export const AIConfigSection: React.FC = () => {
                         </p>
                     )}
                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                        🔒 Sua chave é validada antes de salvar e armazenada <strong>criptografada</strong> no banco de dados.
-                        Ela nunca é exposta no navegador - todas as chamadas de IA passam por um servidor seguro.
+                        🔒 Sua chave é validada antes de salvar e armazenada no banco de dados da organização.
+                        Trate como segredo e use uma chave com o menor escopo possível.
                     </p>
 
                     {/* Seção LGPD Colapsável - Expandida por padrão */}
@@ -479,7 +491,7 @@ export const AIConfigSection: React.FC = () => {
                                         <li>O processamento dos seus <strong>negócios</strong> (deals) pela IA</li>
                                         <li>O processamento dos seus <strong>contatos</strong> pela IA</li>
                                         <li>O processamento das suas <strong>atividades</strong> pela IA</li>
-                                        <li>Opcionalmente, <strong>entrada por voz</strong> (dado sensível conforme Art. 11)</li>
+                                        <li>Geração de sugestões e textos pelo provedor configurado</li>
                                     </ul>
                                 </div>
 

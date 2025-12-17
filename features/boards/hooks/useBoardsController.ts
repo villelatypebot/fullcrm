@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { DealView, DealStatus, Board, CustomFieldDefinition } from '@/types';
+import { DealView, Board, CustomFieldDefinition } from '@/types';
 import {
   useBoards,
   useDefaultBoard,

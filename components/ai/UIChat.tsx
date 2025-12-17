@@ -6,6 +6,19 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, Loader2, Bot, User, Sparkles, Wrench, X, MessageCircle, Minimize2, Maximize2 } from 'lucide-react';
 import { useAI } from '@/context/AIContext';
 
+type ActiveObjectMetadata = {
+    boardId?: string;
+    dealId?: string;
+    contactId?: string;
+    stages?: Array<{ id: string; name: string }>;
+    dealCount?: number;
+    pipelineValue?: number;
+    stagnantDeals?: number;
+    overdueDeals?: number;
+    wonStage?: string;
+    lostStage?: string;
+};
+
 export interface UIChatProps {
     /** Optional explicit context (overrides provider context) */
     boardId?: string;
@@ -37,7 +50,7 @@ export function UIChat({
     const [isExpanded, setIsExpanded] = useState(false);
 
     // Extract FULL context from AIContext for AI SDK v6
-    const metadata = activeContext?.activeObject?.metadata as any;
+    const metadata = activeContext?.activeObject?.metadata as ActiveObjectMetadata | undefined;
 
     // Build rich context with all available info
     const context = useMemo(() => ({
@@ -68,10 +81,6 @@ export function UIChat({
         metadata?.wonStage, metadata?.lostStage
     ]);
 
-    // Keep context ref updated for dynamic body
-    const contextRef = useRef(context);
-    contextRef.current = context;
-
     console.log('[UIChat Debug] Context ready:', {
         id: `chat-${context.boardId || context.dealId || 'global'}`,
         boardId: context.boardId,
@@ -79,14 +88,18 @@ export function UIChat({
     });
 
     // Use transport with dynamic body function + maxSteps for approval flow
-    const { messages, sendMessage, status, error, addToolApprovalResponse } = useChat({
-        transport: useMemo(() => new DefaultChatTransport({
-            api: '/api/ai/chat',
-            body: () => ({
-                context: contextRef.current,
+    const transport = useMemo(
+        () =>
+            new DefaultChatTransport({
+                api: '/api/ai/chat',
+                body: { context },
             }),
-        }), []),
-        // @ts-ignore - maxSteps required for approval flow, types may be outdated
+        [context]
+    );
+
+    const { messages, sendMessage, status, error, addToolApprovalResponse } = useChat({
+        transport,
+        // @ts-expect-error - maxSteps is required for approval flow; types may be outdated
         maxSteps: 10,
     });
 

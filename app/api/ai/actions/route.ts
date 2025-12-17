@@ -16,6 +16,7 @@ import { generateObject, generateText } from 'ai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
+import { isAllowedOrigin } from '@/lib/security/sameOrigin';
 
 export const maxDuration = 60;
 
@@ -30,7 +31,6 @@ type AIAction =
   | 'analyzeLead'
   | 'generateEmailDraft'
   | 'generateObjectionResponse'
-  | 'processAudioNote'
   | 'generateDailyBriefing'
   | 'generateRescueMessage'
   | 'parseNaturalLanguageAction'
@@ -105,6 +105,11 @@ function json<T>(body: T, status = 200): Response {
 }
 
 export async function POST(req: Request) {
+  // Mitigação CSRF: bloqueia POST cross-site em endpoint que usa auth via cookies.
+  if (!isAllowedOrigin(req)) {
+    return json<AIActionResponse>({ error: 'Forbidden' }, 403);
+  }
+
   const supabase = await createClient();
 
   const {
@@ -240,13 +245,17 @@ Meta, KPI, Persona. Português do Brasil.`,
       }
 
       case 'refineBoardWithAI': {
-        const { userInstruction, chatHistory } = data as any;
+        const { currentBoard, userInstruction, chatHistory } = data as any;
         const historyContext = chatHistory ? `\nHistórico:\n${JSON.stringify(chatHistory)}` : '';
+        const boardContext = currentBoard
+          ? `\nBoard atual (JSON):\n${JSON.stringify(currentBoard)}`
+          : '';
         const result = await generateObject({
           model,
           maxRetries: 3,
           schema: RefineBoardSchema,
           prompt: `Ajuste o board com base na instrução: "${userInstruction}".
+${boardContext}
 ${historyContext}
 Se for conversa, retorne board: null.`,
         });
@@ -329,10 +338,6 @@ Deal: ${deal?.title}. Contexto: ${context || ''}.
 Seja natural, 4 parágrafos max.`,
         });
         return json<AIActionResponse>({ result: { script: result.text, scriptType, generatedFor: deal?.title } });
-      }
-
-      case 'processAudioNote': {
-        return json<AIActionResponse>({ error: 'Action not implemented: processAudioNote' }, 200);
       }
 
       default: {

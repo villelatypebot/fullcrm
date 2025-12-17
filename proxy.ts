@@ -6,7 +6,9 @@
  * - Deve exportar APENAS uma função (default export ou named `proxy`).
  * - Pode exportar `config.matcher` para limitar onde roda.
  *
- * Referência: https://nextjs.org/docs/app/api-reference/file-conventions/proxy
+ * Referências oficiais:
+ * - https://nextjs.org/docs/app/api-reference/file-conventions/proxy
+ * - https://nextjs.org/docs/app/api-reference/file-conventions/proxy#migration-to-proxy
  *
  * Neste projeto, o Proxy é usado só para:
  * - refresh de sessão do Supabase SSR

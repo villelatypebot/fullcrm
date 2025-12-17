@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { DealView, DealStatus } from '@/types';
+import { DealView } from '@/types';
 import { Building2, Hourglass, Trophy, XCircle } from 'lucide-react';
 import { ActivityStatusIcon } from './ActivityStatusIcon';
 
@@ -267,6 +267,7 @@ export const DealCard: React.FC<DealCardProps> = ({
             isOpen={openMenuId === deal.id}
             onToggle={handleToggleMenu}
             onQuickAdd={handleQuickAdd}
+            onRequestClose={() => setOpenMenuId(null)}
             onMoveToStage={onMoveToStage ? () => onMoveToStage(deal.id) : undefined}
           />
         </div>

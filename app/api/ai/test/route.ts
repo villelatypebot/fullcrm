@@ -4,18 +4,43 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import type { CRMCallOptions } from '@/types/ai';
+import { isAllowedOrigin } from '@/lib/security/sameOrigin';
 
 export const maxDuration = 60;
 
 // Test configuration - uses service role
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const isTestRouteEnabled =
+    process.env.NODE_ENV === 'development' &&
+    String(process.env.ALLOW_AI_TEST_ROUTE).toLowerCase() === 'true';
 
 export async function POST(req: Request) {
-    console.log('[TEST] 🧪 Test endpoint called');
+    // Dev-only guard: this endpoint uses the Supabase Service Role key.
+    // Deny by default in all environments.
+    if (!isTestRouteEnabled) {
+        return NextResponse.json({ error: 'Not Found' }, { status: 404 });
+    }
+
+    // Mitigação CSRF / hardening (mesmo em dev): só aceita same-origin quando Origin existir.
+    if (!isAllowedOrigin(req)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !supabaseServiceKey) {
+        return NextResponse.json(
+            { error: 'Missing Supabase env vars for test route' },
+            { status: 500 }
+        );
+    }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    const body = await req.json();
+    const body = await req.json().catch(() => null);
+
+    if (!body || typeof body !== 'object') {
+        return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
 
     const organizationId: unknown = body.organizationId;
     if (typeof organizationId !== 'string' || !organizationId) {
@@ -44,14 +69,11 @@ export async function POST(req: Request) {
     const toolName = body.tool || 'listDealsByStage';
     const toolArgs = body.args || {};
 
-    console.log('[TEST] Context:', context);
-    console.log('[TEST] Tool:', toolName, 'Args:', toolArgs);
+    // Avoid logging sensitive org context in dev by default.
 
     // Simulate what the tools do
     const targetBoardId = toolArgs.boardId || context.boardId;
     const stageName = toolArgs.stageName || 'Proposta';
-
-    console.log('[TEST] Target Board ID:', targetBoardId);
 
     if (!targetBoardId) {
         return NextResponse.json({ error: 'No boardId provided in context or args' });
@@ -64,8 +86,6 @@ export async function POST(req: Request) {
         .eq('organization_id', context.organizationId)
         .eq('board_id', targetBoardId)
         .or(`name.ilike.%${stageName}%,label.ilike.%${stageName}%`);
-
-    console.log('[TEST] Stage search:', { stages, stageError });
 
     if (!stages || stages.length === 0) {
         return NextResponse.json({
@@ -87,8 +107,6 @@ export async function POST(req: Request) {
         .eq('is_lost', false)
         .order('value', { ascending: false })
         .limit(10);
-
-    console.log('[TEST] Deals query:', { deals, dealsError });
 
     return NextResponse.json({
         success: true,

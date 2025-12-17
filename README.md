@@ -2,6 +2,51 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
+## Variáveis de ambiente
+
+Use o arquivo `.env.example` como base:
+
+- copie para `.env.local`
+- preencha `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- para scripts/rotas internas server-side, configure também `SUPABASE_SERVICE_ROLE_KEY`
+
+Por segurança, **não** comite `.env.local`.
+
+## AI test routes (dev-only)
+
+This project contains an internal route and page used for AI integration testing:
+
+- POST /api/ai/test
+- GET /ai-test
+
+For safety, both are disabled by default and only work in development when this env var is explicitly enabled:
+
+- ALLOW_AI_TEST_ROUTE=true
+
+Recommendation: enable only locally via .env.local and never in production.
+
+## Proxy (Next 16+) — padrão do projeto
+
+Este projeto usa **Next.js Proxy** via o arquivo `proxy.ts` na raiz.
+
+> No Next.js 16+, a convenção de arquivo `middleware.ts` foi **renomeada/deprecada** em favor de `proxy.ts`.
+
+Links oficiais (pra não ter dúvida):
+
+- https://nextjs.org/docs/app/api-reference/file-conventions/proxy
+- https://nextjs.org/docs/app/api-reference/file-conventions/proxy#migration-to-proxy
+
+Notas rápidas:
+
+- Só existe **um** `proxy.ts` por projeto; use `config.matcher` para limitar onde roda.
+- Neste repo, o `proxy.ts` **não intercepta** `/api/*` (Route Handlers devem responder com 401/403). Isso evita redirects 307 para `/login` quebrando `fetch`/SDKs.
+
+Importante: aqui “Proxy” é uma feature do Next. Não confundir com o **`ai-proxy`** (Edge Function do Supabase) usado pela camada de IA.
+
+## Permissões (RBAC)
+
+- Ver `docs/security/RBAC.md` (papéis: **admin** e **vendedor**, e o que cada um pode/não pode fazer).
+
 First, run the development server:
 
 ```bash

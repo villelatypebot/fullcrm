@@ -15,7 +15,6 @@ export type AIAction =
     | 'analyzeLead'
     | 'generateEmailDraft'
     | 'generateObjectionResponse'
-    | 'processAudioNote'
     | 'generateDailyBriefing'
     | 'generateRescueMessage'
     | 'parseNaturalLanguageAction'

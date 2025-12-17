@@ -17,9 +17,10 @@ type SettingsTab = 'general' | 'data' | 'users';
 
 interface GeneralSettingsProps {
   hash?: string;
+  isAdmin: boolean;
 }
 
-const GeneralSettings: React.FC<GeneralSettingsProps> = ({ hash }) => {
+const GeneralSettings: React.FC<GeneralSettingsProps> = ({ hash, isAdmin }) => {
   const controller = useSettingsController();
 
   // Scroll to hash element (e.g., #ai-config)
@@ -62,32 +63,36 @@ const GeneralSettings: React.FC<GeneralSettingsProps> = ({ hash }) => {
         </div>
       </div>
 
-      <TagsManager
-        availableTags={controller.availableTags}
-        newTagName={controller.newTagName}
-        setNewTagName={controller.setNewTagName}
-        onAddTag={controller.handleAddTag}
-        onRemoveTag={controller.removeTag}
-      />
+      {isAdmin && (
+        <>
+          <TagsManager
+            availableTags={controller.availableTags}
+            newTagName={controller.newTagName}
+            setNewTagName={controller.setNewTagName}
+            onAddTag={controller.handleAddTag}
+            onRemoveTag={controller.removeTag}
+          />
 
-      <CustomFieldsManager
-        customFieldDefinitions={controller.customFieldDefinitions}
-        newFieldLabel={controller.newFieldLabel}
-        setNewFieldLabel={controller.setNewFieldLabel}
-        newFieldType={controller.newFieldType}
-        setNewFieldType={controller.setNewFieldType}
-        newFieldOptions={controller.newFieldOptions}
-        setNewFieldOptions={controller.setNewFieldOptions}
-        editingId={controller.editingId}
-        onStartEditing={controller.startEditingField}
-        onCancelEditing={controller.cancelEditingField}
-        onSaveField={controller.handleSaveField}
-        onRemoveField={controller.removeCustomField}
-      />
+          <CustomFieldsManager
+            customFieldDefinitions={controller.customFieldDefinitions}
+            newFieldLabel={controller.newFieldLabel}
+            setNewFieldLabel={controller.setNewFieldLabel}
+            newFieldType={controller.newFieldType}
+            setNewFieldType={controller.setNewFieldType}
+            newFieldOptions={controller.newFieldOptions}
+            setNewFieldOptions={controller.setNewFieldOptions}
+            editingId={controller.editingId}
+            onStartEditing={controller.startEditingField}
+            onCancelEditing={controller.cancelEditingField}
+            onSaveField={controller.handleSaveField}
+            onRemoveField={controller.removeCustomField}
+          />
 
-      <ApiKeysSection />
+          <ApiKeysSection />
 
-      <WebhooksSection />
+          <WebhooksSection />
+        </>
+      )}
 
       <AIConfigSection />
 
@@ -132,7 +137,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ tab: initialTab }) => {
       case 'users':
         return <UsersPage />;
       default:
-        return <GeneralSettings hash={hash} />;
+        return <GeneralSettings hash={hash} isAdmin={profile?.role === 'admin'} />;
     }
   };
 

@@ -7,12 +7,12 @@ import { LossReasonModal } from '@/components/ui/LossReasonModal';
 import { useMoveDealSimple } from '@/lib/query/hooks';
 import { FocusTrap, useFocusReturn } from '@/lib/a11y';
 import { Activity } from '@/types';
+import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import {
   analyzeLead,
   generateEmailDraft,
   generateObjectionResponse,
-  processAudioNote,
-} from '@/services/geminiService';
+} from '@/lib/ai/actionsClient';
 import {
   BrainCircuit,
   Mail,
@@ -36,23 +36,6 @@ import {
 } from 'lucide-react';
 import { StageProgressBar } from '../StageProgressBar';
 import { ActivityRow } from '@/features/activities/components/ActivityRow';
-
-// Utility to convert Blob to Base64
-const blobToBase64 = (blob: Blob): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      if (typeof reader.result === 'string') {
-        const base64 = reader.result.split(',')[1];
-        resolve(base64);
-      } else {
-        reject(new Error('Failed to convert blob to base64'));
-      }
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
-};
 
 interface DealDetailModalProps {
   dealId: string | null;
@@ -114,10 +97,9 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
   const [newNote, setNewNote] = useState('');
   const [activeTab, setActiveTab] = useState<'timeline' | 'products' | 'info'>('timeline');
 
-  const [isRecording, setIsRecording] = useState(false);
-  const [isProcessingAudio, setIsProcessingAudio] = useState(false);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
+  // Ditado por voz (Web Speech API) - client-side (sem backend)
+  const speech = useSpeechRecognition();
+  const voicePrefixRef = useRef<string>('');
 
   const [objection, setObjection] = useState('');
   const [objectionResponses, setObjectionResponses] = useState<string[]>([]);
@@ -129,6 +111,7 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [showLossReasonModal, setShowLossReasonModal] = useState(false);
   const [pendingLostStageId, setPendingLostStageId] = useState<string | null>(null);
+  const [lossReasonOrigin, setLossReasonOrigin] = useState<'button' | 'stage'>('button');
 
   // Helper functions removed as they are now handled by ActivityRow component
 
@@ -144,8 +127,32 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
       setActiveTab('timeline');
       setIsEditingTitle(false);
       setIsEditingValue(false);
+      setShowLossReasonModal(false);
+      setPendingLostStageId(null);
+      setLossReasonOrigin('button');
+      speech.resetTranscript();
+      voicePrefixRef.current = '';
     }
   }, [isOpen, dealId]); // Depend on dealId to reset when switching deals
+
+  // Mantém o textarea sincronizado com o ditado (sem sobrescrever um prefixo que o usuário já tinha)
+  useEffect(() => {
+    if (!speech.isListening) return;
+    setNewNote(`${voicePrefixRef.current}${speech.transcript}`);
+  }, [speech.isListening, speech.transcript]);
+
+  // Segurança/UX: não deixar o microfone “ligado” se o modal fechar ou se o usuário sair da aba Timeline.
+  useEffect(() => {
+    if (!isOpen && speech.isListening) {
+      speech.stopListening();
+    }
+  }, [isOpen, speech.isListening]);
+
+  useEffect(() => {
+    if (activeTab !== 'timeline' && speech.isListening) {
+      speech.stopListening();
+    }
+  }, [activeTab, speech.isListening]);
 
   if (!isOpen || !deal) return null;
 
@@ -190,93 +197,22 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
     setIsDrafting(false);
   };
 
-  const startRecording = async () => {
-    if (!aiApiKey?.trim()) {
-      addToast('Configure sua chave de API em Configurações → Inteligência Artificial', 'warning');
+  const startRecording = () => {
+    if (!speech.hasRecognitionSupport) {
+      addToast('Seu navegador não suporta ditado por voz.', 'warning');
       return;
     }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorderRef.current = new MediaRecorder(stream);
-      chunksRef.current = [];
 
-      mediaRecorderRef.current.ondataavailable = e => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-
-      mediaRecorderRef.current.onstop = async () => {
-        setIsProcessingAudio(true);
-        const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm; codecs=opus' });
-        const audioBase64 = await blobToBase64(audioBlob);
-
-        try {
-          const result = await processAudioNote(audioBase64, {
-            provider: aiProvider,
-            apiKey: aiApiKey,
-            model: aiModel,
-            thinking: aiThinking,
-            search: aiSearch,
-            anthropicCaching: aiAnthropicCaching,
-          });
-
-          addActivity({
-            dealId: deal.id,
-            dealTitle: deal.title,
-            type: 'NOTE',
-            title: 'Nota de Voz (Transcrição)',
-            description: `"${result.transcription}"\n\nSentimento: ${result.sentiment} `,
-            date: new Date().toISOString(),
-            user: { name: 'Eu', avatar: 'https://i.pravatar.cc/150?u=me' },
-            completed: true,
-          });
-
-          if (result.nextAction) {
-            const validActivityTypes: Activity['type'][] = [
-              'CALL',
-              'MEETING',
-              'EMAIL',
-              'TASK',
-              'NOTE',
-              'STATUS_CHANGE',
-            ];
-            const activityType = validActivityTypes.includes(
-              result.nextAction.type as Activity['type']
-            )
-              ? (result.nextAction.type as Activity['type'])
-              : 'TASK';
-
-            addActivity({
-              dealId: deal.id,
-              dealTitle: deal.title,
-              type: activityType,
-              title: result.nextAction.title,
-              description: 'Extraído automaticamente da nota de voz',
-              date: result.nextAction.date,
-              user: { name: 'Eu', avatar: 'https://i.pravatar.cc/150?u=me' },
-              completed: false,
-            });
-          }
-        } catch (error) {
-          console.error(error);
-          addToast('Erro ao processar áudio', 'error');
-        } finally {
-          setIsProcessingAudio(false);
-          stream.getTracks().forEach(track => track.stop());
-        }
-      };
-
-      mediaRecorderRef.current.start();
-      setIsRecording(true);
-    } catch (err) {
-      console.error('Mic error:', err);
-      addToast('Não foi possível acessar o microfone', 'error');
-    }
+    // Mantém o que já estava no textarea como prefixo (caso o usuário misture digitação + voz)
+    voicePrefixRef.current = newNote.trim() ? `${newNote.trim()}\n` : '';
+    speech.resetTranscript();
+    speech.startListening();
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
+    speech.stopListening();
+    if (!newNote.trim()) {
+      addToast('Não consegui captar fala. Tente novamente.', 'warning');
     }
   };
 
@@ -302,6 +238,9 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
   const handleAddNote = () => {
     if (!newNote.trim()) return;
 
+    // Se estiver ditando, para antes de enviar para evitar que o textarea continue sendo atualizado.
+    speech.stopListening();
+
     const noteActivity: Activity = {
       id: crypto.randomUUID(),
       dealId: deal.id,
@@ -316,6 +255,8 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
 
     addActivity(noteActivity);
     setNewNote('');
+    speech.resetTranscript();
+    voicePrefixRef.current = '';
   };
 
   const handleAddProduct = () => {
@@ -525,6 +466,7 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
                         if (dealBoard?.lostStageId) {
                           setPendingLostStageId(dealBoard.lostStageId);
                         }
+                        setLossReasonOrigin('button');
                         setShowLossReasonModal(true);
                       }}
                       className="px-4 py-2 bg-transparent border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg font-bold text-sm shadow-sm flex items-center gap-2"
@@ -564,6 +506,7 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
                   if (isLostStage) {
                     // Show loss reason modal
                     setPendingLostStageId(stageId);
+                    setLossReasonOrigin('stage');
                     setShowLossReasonModal(true);
                   } else {
                     // Regular move
@@ -727,25 +670,39 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
                             <FileText size={16} />
                           </button>
                           <button
-                            onClick={isRecording ? stopRecording : startRecording}
-                            className={`p-1 transition-all ${isRecording ? 'text-red-500 animate-pulse' : 'hover:text-primary-500'}`}
-                            title="Gravar Nota de Voz (Voice-to-Action)"
+                            onClick={speech.isListening ? stopRecording : startRecording}
+                            className={`p-1 transition-all ${speech.isListening ? 'text-red-500 animate-pulse' : 'hover:text-primary-500'}`}
+                            title="Ditado por voz (transcrição no navegador)"
+                            aria-pressed={speech.isListening}
                           >
-                            {isProcessingAudio ? (
-                              <div className="animate-spin w-4 h-4 border-2 border-current border-t-transparent rounded-full" />
-                            ) : isRecording ? (
+                            {speech.isListening ? (
                               <StopCircle size={16} />
                             ) : (
                               <Mic size={16} />
                             )}
                           </button>
+
+                          {speech.isListening && (
+                            <div
+                              className="flex items-center gap-2 text-xs text-red-600 dark:text-red-400 select-none"
+                              aria-live="polite"
+                            >
+                              <span className="relative flex h-2 w-2">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-60" />
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+                              </span>
+                              <span>
+                                Ouvindo… <span className="text-slate-500 dark:text-slate-300">(clique para parar)</span>
+                              </span>
+                            </div>
+                          )}
                         </div>
                         <button
                           onClick={handleAddNote}
                           disabled={!newNote.trim()}
                           className="bg-primary-600 hover:bg-primary-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 transition-all"
                         >
-                          <Check size={14} /> Salvar
+                          <Check size={14} /> Enviar
                         </button>
                       </div>
                     </div>
@@ -1038,6 +995,7 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
           onClose={() => {
             setShowLossReasonModal(false);
             setPendingLostStageId(null);
+            setLossReasonOrigin('button');
           }}
           onConfirm={(reason) => {
             // Priority:
@@ -1050,9 +1008,7 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
               moveDeal(deal, deal.status, reason, false, true); // explicitLost = true
               setShowLossReasonModal(false);
               setPendingLostStageId(null);
-              if (!pendingLostStageId) {
-                onClose();
-              }
+              if (lossReasonOrigin === 'button') onClose();
               return;
             }
 
@@ -1075,10 +1031,8 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
             }
             setShowLossReasonModal(false);
             setPendingLostStageId(null);
-            // Only close the deal modal if it was from the button (not from progress bar)
-            if (!pendingLostStageId) {
-              onClose();
-            }
+            // Only close the deal modal if it was triggered via the "PERDIDO" button
+            if (lossReasonOrigin === 'button') onClose();
           }}
           dealTitle={deal.title}
         />

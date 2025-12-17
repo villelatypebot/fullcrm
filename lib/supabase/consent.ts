@@ -5,7 +5,6 @@
  * 
  * SIMPLIFICADO: Um único consentimento (AI_CONSENT) cobre:
  * - Processamento de dados por IA (análise, sugestões, geração de texto)
- * - Uso de microfone para entrada por voz
  * - Envio de dados para APIs externas (Google Gemini, OpenAI, Anthropic)
  * 
  * Conforme LGPD Art. 7 (bases legais) e Art. 11 (dados sensíveis).
@@ -32,7 +31,7 @@ export interface UserConsent {
 }
 
 /** Versão atual do consentimento - incrementar quando houver mudanças no texto */
-export const CONSENT_VERSION = '1.0.0';
+export const CONSENT_VERSION = '1.0.1';
 
 // Mantido para compatibilidade
 export const CONSENT_VERSIONS: Record<ConsentType, string> = {
@@ -172,8 +171,11 @@ export function getConsentText(): { title: string; description: string; version:
     description: `Ao aceitar, você autoriza:
 
 • O processamento de seus dados e contatos por APIs de Inteligência Artificial externas (Google Gemini, OpenAI, Anthropic)
-• O uso do microfone para entrada por voz e transcrição
 • Análise de leads, sugestões automatizadas e personalização de comunicações
+
+Observação sobre ditado por voz (microfone):
+• O recurso de ditado/transcrição é feito no seu navegador via Web Speech API.
+• Dependendo do navegador, o reconhecimento pode envolver processamento pelo fornecedor do navegador/OS.
 
 Seus dados serão tratados conforme nossa Política de Privacidade e a LGPD (Lei Geral de Proteção de Dados), incluindo Art. 11 para dados sensíveis (voz).
 

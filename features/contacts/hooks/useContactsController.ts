@@ -107,23 +107,15 @@ export const useContactsController = () => {
   // T029: Track filter changes to reset pagination synchronously
   // This prevents 416 errors when filters change while on a high page number
   const filterKey = `${search}-${stageFilter}-${statusFilter}-${dateRange.start}-${dateRange.end}`;
-  const prevFilterKeyRef = React.useRef(filterKey);
+  const prevFilterKeyRef = React.useRef<string>(filterKey);
 
-  // Compute effective pagination - reset to page 0 if filters changed
-  const effectivePagination = useMemo((): PaginationState => {
+  // Reset to first page when filters change (safe: inside effect)
+  useEffect(() => {
     if (prevFilterKeyRef.current !== filterKey) {
       prevFilterKeyRef.current = filterKey;
-      return { ...pagination, pageIndex: 0 };
+      setPagination(prev => (prev.pageIndex === 0 ? prev : { ...prev, pageIndex: 0 }));
     }
-    return pagination;
-  }, [pagination, filterKey]);
-
-  // Sync state after filter reset (for UI consistency)
-  useEffect(() => {
-    if (effectivePagination.pageIndex === 0 && pagination.pageIndex !== 0) {
-      setPagination(prev => ({ ...prev, pageIndex: 0 }));
-    }
-  }, [effectivePagination.pageIndex, pagination.pageIndex]);
+  }, [filterKey]);
 
   // T018-T019: Use paginated query instead of getAll
   const {
@@ -131,7 +123,7 @@ export const useContactsController = () => {
     isLoading: contactsLoading,
     isFetching,
     isPlaceholderData,
-  } = useContactsPaginated(effectivePagination, serverFilters);
+  } = useContactsPaginated(pagination, serverFilters);
 
   // T019: Extract contacts and totalCount from paginated response
   const contacts = paginatedData?.data ?? [];

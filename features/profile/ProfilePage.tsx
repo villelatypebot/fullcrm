@@ -6,6 +6,11 @@ import { Loader2, User, Mail, Shield, Calendar, Key, Check, Eye, EyeOff, Phone, 
 
 export const ProfilePage: React.FC = () => {
     const { profile, refreshProfile } = useAuth();
+
+    // Em ambientes onde as variáveis de ambiente não estão configuradas,
+    // nosso helper pode retornar `null` para evitar crash.
+    const sb = supabase;
+
     const [isChangingPassword, setIsChangingPassword] = useState(false);
     const [isEditingProfile, setIsEditingProfile] = useState(false);
     const [newPassword, setNewPassword] = useState('');
@@ -16,26 +21,6 @@ export const ProfilePage: React.FC = () => {
     const [uploadingAvatar, setUploadingAvatar] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
-
-    // Em ambientes onde as variáveis de ambiente não estão configuradas,
-    // nosso helper pode retornar `null` para evitar crash. Para esta página,
-    // sem Supabase não há como salvar/atualizar perfil.
-    const sb = supabase;
-    if (!sb) {
-        return (
-            <div className="p-6">
-                <div className="max-w-xl mx-auto bg-white dark:bg-dark-card border border-slate-200 dark:border-white/10 rounded-2xl p-6">
-                    <h1 className="text-lg font-bold text-slate-900 dark:text-white mb-2">
-                        Configuração incompleta
-                    </h1>
-                    <p className="text-slate-600 dark:text-slate-300">
-                        O Supabase não está configurado neste ambiente. Verifique as variáveis de ambiente
-                        (URL e ANON KEY) para usar a página de perfil.
-                    </p>
-                </div>
-            </div>
-        );
-    }
 
     // Validação de senha
     const passwordRequirements = {
@@ -53,6 +38,9 @@ export const ProfilePage: React.FC = () => {
     const [phone, setPhone] = useState('');
     const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
+    const [isChangingEmail, setIsChangingEmail] = useState(false);
+    const [newEmail, setNewEmail] = useState('');
+
     // Carrega dados do perfil
     useEffect(() => {
         if (profile) {
@@ -63,6 +51,23 @@ export const ProfilePage: React.FC = () => {
             setAvatarUrl(profile.avatar_url || null);
         }
     }, [profile]);
+
+    // Sem Supabase não há como salvar/atualizar perfil.
+    if (!sb) {
+        return (
+            <div className="p-6">
+                <div className="max-w-xl mx-auto bg-white dark:bg-dark-card border border-slate-200 dark:border-white/10 rounded-2xl p-6">
+                    <h1 className="text-lg font-bold text-slate-900 dark:text-white mb-2">
+                        Configuração incompleta
+                    </h1>
+                    <p className="text-slate-600 dark:text-slate-300">
+                        O Supabase não está configurado neste ambiente. Verifique as variáveis de ambiente
+                        (URL e ANON KEY) para usar a página de perfil.
+                    </p>
+                </div>
+            </div>
+        );
+    }
 
     // Gera iniciais e cor do avatar
     const getInitials = () => {
@@ -262,9 +267,6 @@ export const ProfilePage: React.FC = () => {
         }
         return value.slice(0, 15);
     };
-
-    const [isChangingEmail, setIsChangingEmail] = useState(false);
-    const [newEmail, setNewEmail] = useState('');
 
     // Altera email
     const handleChangeEmail = async (e: React.FormEvent) => {

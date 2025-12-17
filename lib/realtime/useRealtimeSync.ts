@@ -8,7 +8,7 @@
  *   useRealtimeSync('deals');  // Subscribe to deals table changes
  *   useRealtimeSync(['deals', 'activities']);  // Multiple tables
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
@@ -55,6 +55,7 @@ export function useRealtimeSync(
   const { enabled = true, debounceMs = 100, onchange } = options;
   const queryClient = useQueryClient();
   const channelRef = useRef<RealtimeChannel | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingInvalidationsRef = useRef<Set<readonly unknown[]>>(new Set());
 
@@ -106,8 +107,8 @@ export function useRealtimeSync(
     });
 
     // Subscribe to channel
-    channel.subscribe((status, err) => {
-      // Status handling
+    channel.subscribe((status) => {
+      setIsConnected(status === 'SUBSCRIBED');
     });
 
     channelRef.current = channel;
@@ -121,6 +122,7 @@ export function useRealtimeSync(
         sb.removeChannel(channelRef.current);
         channelRef.current = null;
       }
+      setIsConnected(false);
     };
   }, [enabled, JSON.stringify(tables), debounceMs, onchange, queryClient]);
 
@@ -136,7 +138,7 @@ export function useRealtimeSync(
       });
     },
     /** Check if channel is connected */
-    isConnected: channelRef.current?.state === 'joined',
+    isConnected,
   };
 }
 

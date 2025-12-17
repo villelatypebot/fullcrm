@@ -95,6 +95,7 @@ export const CRMCallOptionsSchema = z.object({
     // User context
     userId: z.string().optional(),
     userName: z.string().optional(),
+    userRole: z.enum(['admin', 'vendedor']).optional(),
 });
 
 // Infer type from schema for type-safety

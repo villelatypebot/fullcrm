@@ -153,13 +153,21 @@ export const useMoveDeal = () => {
                 value: deal.value,
                 contactId: deal.contactId,
                 boardId: targetBoard.id,
+                // Status/stage devem refletir o board de destino (não o stage do board anterior)
                 status: entryStageId,
                 priority: deal.priority,
-                clientCompanyId: deal.clientCompanyId,
+                // Compat: DealView/Deal ainda pode ter companyId legado
+                clientCompanyId: deal.clientCompanyId ?? deal.companyId,
                 ownerId: deal.ownerId,
                 owner: deal.owner || { name: 'Unknown', avatar: '' },
                 items: deal.items || [],
                 tags: deal.tags || [],
+                // Rastreabilidade (ajuda também a prevenir duplicidade no futuro)
+                customFields: {
+                  originDealId: deal.id,
+                  originBoardId: board.id,
+                  originAutomation: 'NEXT_BOARD',
+                },
                 updatedAt: new Date().toISOString(),
                 isWon: false,
                 isLost: false,

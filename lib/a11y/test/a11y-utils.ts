@@ -1,4 +1,4 @@
-/// <reference path="./vitest-axe.d.ts" />
+import './vitest-axe';
 import { axe, configureAxe } from 'vitest-axe';
 import { expect } from 'vitest';
 import type { RenderResult } from '@testing-library/react';

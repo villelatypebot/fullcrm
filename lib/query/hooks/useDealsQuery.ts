@@ -11,13 +11,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../index';
 import { dealsService, contactsService, companiesService, boardStagesService } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import type { Deal, DealView, DealStatus, DealItem } from '@/types';
+import type { Deal, DealView, DealItem } from '@/types';
 
 // ============ QUERY HOOKS ============
 
 export interface DealsFilters {
   boardId?: string;
-  status?: DealStatus;
+  /** Stage id (UUID) do board_stages */
+  status?: string;
   search?: string;
   minValue?: number;
   maxValue?: number;

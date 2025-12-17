@@ -3,7 +3,7 @@
  * Fetches real AI analysis for a deal using the AI Proxy
  */
 import { useQuery } from '@tanstack/react-query';
-import { analyzeLead } from '@/services/geminiService';
+import { analyzeLead } from '@/lib/ai/actionsClient';
 import { Deal, DealView } from '@/types';
 
 export interface AIAnalysis {
@@ -41,23 +41,6 @@ export function useAIDealAnalysis(
 
             try {
                 const result = await analyzeLead(deal, undefined, stageLabel);
-
-                // Handle new structured format
-                if ('action' in result && 'actionType' in result) {
-                    return result as AIAnalysis;
-                }
-
-                // Handle legacy format (backwards compatibility)
-                if ('suggestion' in result) {
-                    return {
-                        action: (result as any).suggestion?.split('.')[0]?.slice(0, 50) || 'Analisar deal',
-                        reason: (result as any).suggestion?.split('.')[1]?.slice(0, 80) || '',
-                        actionType: 'TASK' as const,
-                        urgency: 'medium' as const,
-                        probabilityScore: result.probabilityScore,
-                        suggestion: (result as any).suggestion,
-                    };
-                }
 
                 return result as AIAnalysis;
             } catch (error) {

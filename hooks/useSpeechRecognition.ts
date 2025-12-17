@@ -24,7 +24,7 @@
  *   return (
  *     <div>
  *       <button onClick={isListening ? stopListening : startListening}>
- *         {isListening ? '⏹️ Parar' : '🎤 Gravar'}
+ *         {isListening ? '⏹️ Parar' : '🎤 Ditado'}
  *       </button>
  *       <p>{transcript}</p>
  *     </div>
@@ -45,9 +45,9 @@ interface SpeechRecognitionHook {
   isListening: boolean;
   /** Texto transcrito da fala */
   transcript: string;
-  /** Inicia gravação de voz */
+  /** Inicia o ditado (reconhecimento de fala) */
   startListening: () => void;
-  /** Para gravação de voz */
+  /** Para o ditado (reconhecimento de fala) */
   stopListening: () => void;
   /** Limpa o transcript atual */
   resetTranscript: () => void;
@@ -177,6 +177,19 @@ export const useSpeechRecognition = (): SpeechRecognitionHook => {
       };
 
       setRecognition(recognitionInstance);
+
+      return () => {
+        // Cleanup para evitar listeners vivos e setState após unmount
+        try {
+          recognitionInstance.onstart = null;
+          recognitionInstance.onresult = null;
+          recognitionInstance.onend = null;
+          recognitionInstance.onerror = null;
+          recognitionInstance.stop();
+        } catch {
+          // ignore
+        }
+      };
     } else {
       // API not supported
     }
