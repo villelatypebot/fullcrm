@@ -1,7 +1,7 @@
-import DealCockpitClient from '@/features/deals/cockpit/DealCockpitClient';
+import DealCockpitFocusClient from '@/features/deals/cockpit/DealCockpitFocusClient';
 
 /**
- * Cockpit (real) - rota canônica fora de /labs.
+ * Cockpit (verdadeiro/original) - UI do Focus (Inbox) como rota canônica.
  * URL: /deals/[dealId]/cockpit
  */
 export default async function DealCockpitPage({
@@ -10,5 +10,5 @@ export default async function DealCockpitPage({
   params: Promise<{ dealId: string }>;
 }) {
   const { dealId } = await params;
-  return <DealCockpitClient dealId={dealId} />;
+  return <DealCockpitFocusClient dealId={dealId} />;
 }
