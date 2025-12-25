@@ -24,6 +24,7 @@
     - UX: export/import do template agora é “para leigos” por padrão (ações principais em destaque e detalhes técnicos/JSON escondidos atrás de “Mostrar detalhes técnicos”).
     - UX: export de template agora é sempre no formato **Jornada** (1 board = template simples; múltiplos = jornada). Removidos botões “Board/Jornada”.
     - UX: modal de export reduzido (não precisa mais de largura extra após simplificações).
+    - UX: modal de export reduzido ainda mais para ficar mais compacto.
 
 - **Merge de branches e consolidação na `main`**:
   - Merge de `chore/migrate-ai-actions-to-tasks`: introdução de endpoints em `/api/ai/tasks/*` (boards/deals/inbox) e migração parcial de chamadas para o novo client (`lib/ai/tasksClient.ts`), removendo rotas legacy.

@@ -382,7 +382,7 @@ export function ExportTemplateModal(props: {
       onClose={onClose}
       title="Exportar template (comunidade)"
       size="xl"
-      className="max-w-3xl"
+      className="max-w-2xl"
       bodyClassName="space-y-6 max-h-[75vh] overflow-y-auto pr-1"
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
