@@ -189,16 +189,21 @@ export const CreateBoardModal: React.FC<CreateBoardModalProps> = ({
         isOpen={isOpen}
         onClose={onClose}
         title={editingBoard ? 'Editar Board' : 'Criar Novo Board'}
-        size="xl"
+        size="lg"
         labelledById={headingId}
-        className="max-w-2xl"
+        className="max-w-xl"
         // We control padding/scroll inside, so keep the Modal body wrapper flat.
         bodyClassName="p-0"
         // Nested modal: avoid trapping focus behind the lifecycle modal.
         focusTrapEnabled={!isLifecycleModalOpen}
       >
-        <div className="flex flex-col min-h-0">
-          <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-6">
+        <div className="flex flex-col">
+          {/* 
+            Scroll container:
+            Use an explicit max-height so the form never "explodes" beyond the visible area.
+            Keeps the footer always reachable/visible.
+          */}
+          <div className="overflow-y-auto p-4 sm:p-6 space-y-6 max-h-[calc(100dvh-14rem)] sm:max-h-[calc(100dvh-18rem)]">
               {/* Switch board (edit mode only) */}
               {editingBoard && onSwitchEditingBoard && availableBoards.length > 1 && (
                 <div>

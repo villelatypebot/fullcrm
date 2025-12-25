@@ -26,6 +26,7 @@
   - UX (Boards): Wizard “Criar Novo Board” agora mantém o **modo browse compacto** (mesma filosofia da home) e removeu o **footer vazio** no step de seleção para evitar “espaço morto” e sensação de modal gigante.
   - UX (Boards): corrigido conflito de `max-w` no Wizard (o `lg:max-w-5xl` estava vencendo e mantendo o modal largo mesmo no browse); agora o `max-w` é calculado sem classes conflitantes.
   - UX (Boards): browse do Wizard (Playbooks/Templates/Comunidade) agora usa **`max-w-2xl`** para ficar mais “picker” e menos “página”.
+  - UX (Boards): modal “Criar board em branco” agora tem **scroll interno com `max-h` por viewport**, evitando estourar a área visível em telas menores e mantendo o footer sempre acessível.
 
 ## 24/12/2025
 
