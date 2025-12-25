@@ -18,6 +18,34 @@ import { supabase } from './client';
 import { Deal, DealItem, OrganizationId } from '@/types';
 import { sanitizeUUID, requireUUID, isValidUUID } from './utils';
 
+// =============================================================================
+// Organization inference (client-side, RLS-safe)
+// =============================================================================
+let cachedOrgId: string | null = null;
+let cachedOrgUserId: string | null = null;
+
+async function getCurrentOrganizationId(): Promise<string | null> {
+  if (!supabase) return null;
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  if (cachedOrgUserId === user.id && cachedOrgId) return cachedOrgId;
+
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+
+  if (error) return null;
+
+  const orgId = sanitizeUUID((profile as any)?.organization_id);
+  cachedOrgUserId = user.id;
+  cachedOrgId = orgId;
+  return orgId;
+}
+
 // ============================================
 // DEALS SERVICE
 // ============================================
@@ -305,9 +333,23 @@ export const dealsService = {
       }
 
       if (!organizationId) {
+        // Recovery: some boards may have been created without organization_id.
+        // Try inferring from current user's profile and repair the board in the background.
+        organizationId = await getCurrentOrganizationId();
+        if (organizationId) {
+          supabase
+            .from('boards')
+            .update({ organization_id: organizationId })
+            .eq('id', boardId)
+            .then(() => undefined)
+            .catch(() => undefined);
+        }
+      }
+
+      if (!organizationId) {
         return {
           data: null,
-          error: new Error('Organização não identificada para este deal. Recarregue a página e tente novamente.')
+          error: new Error('Organização não identificada para este deal. Faça logout/login ou recarregue a página e tente novamente.')
         };
       }
 

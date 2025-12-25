@@ -7,6 +7,8 @@
   - Instalação da jornada oficial agora preenche `linkedLifecycleStage` **no nível do board** (além do `linkedLifecycleStage` já existente nas colunas/estágios), deixando os boards “interligados” pelo lifecycle no runtime.
   - Instalação da jornada (oficial e community) agora também encadeia o fluxo via `nextBoardId` (SDR → Vendas → Onboarding → CS), permitindo **handoff automático** quando o deal atinge o estágio de sucesso.
   - Correção de regra de “ganho/perda”: quando o board define `wonStageId`/`lostStageId`, o sistema **prioriza esses IDs** (fallback para `linkedLifecycleStage` apenas se não houver configuração) — evita disparos indevidos em boards como Onboarding.
+  - Fix de multi-tenant: `boardsService` agora garante `organization_id` ao criar boards/estágios (inferindo do `profiles.organization_id` quando o caller não fornece), evitando falhas de criação de deals (“Organização não identificada…”).
+  - Fix de resiliência: `dealsService.create` agora tenta recuperar `organization_id` via `profiles` se o board estiver com `organization_id` vazio, e faz um repair best-effort do board em background.
 
 ## 24/12/2025
 
