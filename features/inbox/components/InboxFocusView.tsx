@@ -262,6 +262,22 @@ export const InboxFocusView: React.FC<InboxFocusViewProps> = ({
   useEffect(() => {
     setSidebarCollapsed(showContext);
   }, [showContext, setSidebarCollapsed]);
+
+  const normalizedContextSearch = normalizeTitleKey(contextSearch);
+  const suggestedDeals = useMemo(() => {
+    // UX: if the activity has no deal/contact context (common in generic tasks),
+    // allow the user to manually link a deal to bring back the Cockpit panel.
+    if (!normalizedContextSearch) return deals.slice(0, 12);
+    const results: DealView[] = [];
+    for (const d of deals) {
+      const key = normalizeTitleKey(d.title ?? '');
+      if (!key) continue;
+      if (key.includes(normalizedContextSearch)) results.push(d);
+      if (results.length >= 12) break;
+    }
+    return results;
+  }, [deals, normalizedContextSearch]);
+
   if (!currentItem) {
     return (
       <div className="flex flex-col items-center justify-center py-20 animate-fade-in">
@@ -340,20 +356,6 @@ export const InboxFocusView: React.FC<InboxFocusViewProps> = ({
   const isMeeting = activity?.type === 'MEETING' || activity?.type === 'CALL';
   const timeString = activity ? PT_BR_TIME_FORMATTER.format(new Date(activity.date)) : '';
   const hasResolvedContext = !!(contextData?.deal || contextData?.contact);
-  const normalizedContextSearch = normalizeTitleKey(contextSearch);
-  const suggestedDeals = useMemo(() => {
-    // UX: if the activity has no deal/contact context (common in generic tasks),
-    // allow the user to manually link a deal to bring back the Cockpit panel.
-    if (!normalizedContextSearch) return deals.slice(0, 12);
-    const results: DealView[] = [];
-    for (const d of deals) {
-      const key = normalizeTitleKey(d.title ?? '');
-      if (!key) continue;
-      if (key.includes(normalizedContextSearch)) results.push(d);
-      if (results.length >= 12) break;
-    }
-    return results;
-  }, [deals, normalizedContextSearch]);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] py-8 animate-fade-in">

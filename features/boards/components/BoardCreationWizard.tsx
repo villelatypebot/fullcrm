@@ -187,7 +187,8 @@ export const BoardCreationWizard: React.FC<BoardCreationWizardProps> = ({
         onCreate({
           name: boardDef.name,
           description: `Parte da jornada: ${journey.boards.length > 1 ? 'Sim' : 'Não'}`,
-          linkedLifecycleStage: undefined, // Journey boards might have specific logic
+          // Journey templates can define lifecycle linkage at the *column* level; we keep the board-level linkage optional.
+          linkedLifecycleStage: undefined,
           template: 'CUSTOM',
           stages: boardStages,
           isDefault: false,
@@ -213,6 +214,15 @@ export const BoardCreationWizard: React.FC<BoardCreationWizardProps> = ({
     const journey = OFFICIAL_JOURNEYS[journeyId];
     if (!journey) return;
 
+    // For official journeys we can safely set the board-level lifecycle linkage,
+    // so the UI/analytics can understand the "handoff" between boards.
+    const boardLifecycleBySlug: Record<string, string | undefined> = {
+      sdr: BOARD_TEMPLATES.PRE_SALES.linkedLifecycleStage,
+      sales: BOARD_TEMPLATES.SALES.linkedLifecycleStage,
+      onboarding: BOARD_TEMPLATES.ONBOARDING.linkedLifecycleStage,
+      cs: BOARD_TEMPLATES.CS.linkedLifecycleStage,
+    };
+
     // Install all boards in the journey with sequential order
     // Each board gets an incrementing order to maintain sequence
     for (let i = 0; i < journey.boards.length; i++) {
@@ -228,7 +238,7 @@ export const BoardCreationWizard: React.FC<BoardCreationWizardProps> = ({
       onCreate({
         name: boardDef.name,
         description: `Parte da jornada: ${journey.boards.length > 1 ? 'Sim' : 'Não'}`,
-        linkedLifecycleStage: undefined,
+        linkedLifecycleStage: boardLifecycleBySlug[boardDef.slug],
         template: 'CUSTOM',
         stages: boardStages,
         isDefault: false,

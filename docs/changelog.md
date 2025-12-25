@@ -1,5 +1,11 @@
 # Changelog
 
+## 25/12/2025
+
+- **Jornada “Máquina de Vendas B2B (Completa)”**:
+  - Adicionado o estágio/board **CS & Upsell** (4ª etapa), fechando o ciclo pós-onboarding dentro da jornada oficial.
+  - Instalação da jornada oficial agora preenche `linkedLifecycleStage` **no nível do board** (além do `linkedLifecycleStage` já existente nas colunas/estágios), deixando os boards “interligados” pelo lifecycle no runtime.
+
 ## 24/12/2025
 
 - **Kanban (UX)**:

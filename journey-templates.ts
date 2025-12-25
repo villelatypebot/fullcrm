@@ -10,7 +10,7 @@ export const OFFICIAL_JOURNEYS: Record<
     schemaVersion: '1.0',
     name: 'Máquina de Vendas B2B (Completa)',
     description:
-      'O setup ideal para empresas SaaS. Inclui Pré-vendas (SDR), Vendas (Closer) e CS (Onboarding).',
+      'O setup ideal para empresas SaaS. Inclui Pré-vendas (SDR), Vendas (Closer), Onboarding e CS & Upsell.',
     icon: '🏭',
     boards: [
       {
@@ -53,6 +53,20 @@ export const OFFICIAL_JOURNEYS: Record<
           agentPersona: BOARD_TEMPLATES.ONBOARDING.agentPersona,
           goal: BOARD_TEMPLATES.ONBOARDING.goal,
           entryTrigger: BOARD_TEMPLATES.ONBOARDING.entryTrigger,
+        },
+      },
+      {
+        slug: 'cs',
+        name: '4. CS & Upsell',
+        columns: BOARD_TEMPLATES.CS.stages.map(s => ({
+          name: s.label,
+          color: s.color,
+          linkedLifecycleStage: s.linkedLifecycleStage,
+        })),
+        strategy: {
+          agentPersona: BOARD_TEMPLATES.CS.agentPersona,
+          goal: BOARD_TEMPLATES.CS.goal,
+          entryTrigger: BOARD_TEMPLATES.CS.entryTrigger,
         },
       },
     ],

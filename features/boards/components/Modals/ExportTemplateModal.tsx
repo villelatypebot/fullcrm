@@ -191,7 +191,6 @@ export function ExportTemplateModal(props: {
   useEffect(() => {
     if (journeyNameDirty) return;
     setJourneyName(buildDefaultJourneyName(selectedBoards));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedBoards]);
 
   const journeyJson = useMemo(() => {
