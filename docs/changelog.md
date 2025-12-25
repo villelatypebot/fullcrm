@@ -28,6 +28,7 @@
   - UX (Boards): browse do Wizard (Playbooks/Templates/Comunidade) agora usa **`max-w-2xl`** para ficar mais “picker” e menos “página”.
   - UX (Boards): modal “Criar board em branco” agora tem **scroll interno com `max-h` por viewport**, evitando estourar a área visível em telas menores e mantendo o footer sempre acessível.
   - UX (Boards): preview/criação via **IA** agora normaliza cores das colunas usando uma **paleta fixa** (Tailwind não gera classes dinâmicas vindas da IA em runtime), garantindo que os boards gerados venham com cores visíveis.
+  - UX (Modais): overlay de modal agora usa **z-index alto** para nunca ficar atrás da sidebar; “Refinar com IA” foi reduzido para não parecer página cheia.
 
 ## 24/12/2025
 

@@ -720,7 +720,7 @@ export const BoardCreationWizard: React.FC<BoardCreationWizardProps> = ({
   const isPlaybookPreviewStep = step === 'playbook-preview' && !isChatMode;
   // Avoid conflicting max-width classes (Tailwind order can make `lg:max-w-5xl` win).
   const panelMaxWidthClass = isChatMode
-    ? 'lg:max-w-6xl'
+    ? 'lg:max-w-5xl'
     : isSelectHome
       ? 'sm:max-w-xl lg:max-w-xl'
       : isSelectBrowse

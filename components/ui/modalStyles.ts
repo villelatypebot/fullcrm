@@ -8,7 +8,8 @@
  * - consistent header/body/footer spacing
  */
 export const MODAL_OVERLAY_CLASS =
-  'fixed inset-0 z-50 flex items-stretch sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-2 sm:p-4';
+  // Use a very high z-index so modals never render behind fixed sidebars/overlays.
+  'fixed inset-0 z-[9999] flex items-stretch sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-2 sm:p-4';
 
 export const MODAL_PANEL_BASE_CLASS =
   'bg-white dark:bg-dark-card border border-slate-200 dark:border-white/10 shadow-2xl w-full flex flex-col overflow-hidden rounded-xl sm:rounded-2xl';
