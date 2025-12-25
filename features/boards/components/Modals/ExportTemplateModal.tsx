@@ -88,7 +88,38 @@ function buildJourneyFromBoards(
 }
 
 type Mode = 'board' | 'journey';
-type Panel = 'export' | 'import';
+type Panel = 'export' | 'import' | 'publish';
+
+function guessCategoryFromBoards(boards: Board[]) {
+  const text = boards.map(b => b.name).join(' ').toLowerCase();
+  if (/\b(vendas|sales|closer|pipeline)\b/.test(text)) return 'sales';
+  if (/\b(onboarding|implant|implementa|cs|sucesso|customer)\b/.test(text)) return 'onboarding';
+  if (/\b(pre[-\s]?venda|sdr|qualifica)\b/.test(text)) return 'sales';
+  return 'ops';
+}
+
+function buildDefaultJourneyName(selectedBoards: Board[]) {
+  if (selectedBoards.length <= 1) return selectedBoards[0]?.name || 'Jornada';
+  const first = selectedBoards[0]?.name ?? 'Board 1';
+  const last = selectedBoards[selectedBoards.length - 1]?.name ?? 'Board N';
+  return `Jornada - ${first} → ${last}`;
+}
+
+function buildDefaultDescription(selectedBoards: Board[]) {
+  if (selectedBoards.length === 0) return 'Template exportado do CRM';
+  if (selectedBoards.length === 1) return `Board exportado do CRM: ${selectedBoards[0].name}`;
+  return `Jornada com ${selectedBoards.length} boards: ${selectedBoards.map(b => b.name).join(' → ')}`;
+}
+
+function buildDefaultTags(selectedBoards: Board[]) {
+  const tags = new Set<string>(['kanban', 'crm']);
+  const text = selectedBoards.map(b => b.name).join(' ').toLowerCase();
+  if (/\b(pre[-\s]?venda|sdr|lead|mql)\b/.test(text)) tags.add('pre-sales');
+  if (/\b(vendas|sales|pipeline|negocia|proposta)\b/.test(text)) tags.add('sales');
+  if (/\b(onboarding|implant|implementa|treinamento)\b/.test(text)) tags.add('onboarding');
+  if (/\b(cs|sucesso|churn|upsell)\b/.test(text)) tags.add('cs');
+  return Array.from(tags);
+}
 
 const JourneySchema = z.object({
   schemaVersion: z.string().min(1),
@@ -136,10 +167,12 @@ export function ExportTemplateModal(props: {
 
   const [panel, setPanel] = useState<Panel>('export');
   const [mode, setMode] = useState<Mode>('board');
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   // Journey metadata
   const [schemaVersion, setSchemaVersion] = useState('1.0');
   const [journeyName, setJourneyName] = useState(() => `Jornada - ${activeBoard.name}`);
+  const [journeyNameDirty, setJourneyNameDirty] = useState(false);
   const [slugPrefix, setSlugPrefix] = useState('');
 
   // Selected boards for journey (keep order)
@@ -170,13 +203,53 @@ export function ExportTemplateModal(props: {
   }, [boards, selectedBoardIds]);
 
   // Registry snippet (optional helper)
+  const initialCategory = guessCategoryFromBoards([activeBoard]);
   const [templateId, setTemplateId] = useState(() => slugify(activeBoard.name) || 'my-template');
-  const [templatePath, setTemplatePath] = useState(() => `sales/${slugify(activeBoard.name) || 'my-template'}`);
+  const [templatePath, setTemplatePath] = useState(() => `${initialCategory}/${slugify(activeBoard.name) || 'my-template'}`);
   const [templateName, setTemplateName] = useState(() => activeBoard.name);
   const [templateDescription, setTemplateDescription] = useState(() => activeBoard.description || 'Template exportado do CRM');
   const [templateAuthor, setTemplateAuthor] = useState('thaleslaray');
   const [templateVersion, setTemplateVersion] = useState('1.0.0');
   const [templateTags, setTemplateTags] = useState('kanban,crm');
+
+  const [templateMetaDirty, setTemplateMetaDirty] = useState(false);
+
+  useEffect(() => {
+    // Jobs-style defaults: keep metadata sensible but never overwrite user edits.
+    const boardsForNaming = mode === 'journey' ? selectedBoards : [activeBoard];
+    if (mode === 'journey' && !journeyNameDirty) {
+      setJourneyName(buildDefaultJourneyName(selectedBoards));
+    }
+
+    if (!templateMetaDirty) {
+      const defaultName = mode === 'journey'
+        ? (journeyNameDirty ? journeyName : buildDefaultJourneyName(selectedBoards))
+        : activeBoard.name;
+      const tags = buildDefaultTags(boardsForNaming);
+      const category = guessCategoryFromBoards(boardsForNaming);
+      const id = slugify(defaultName) || slugify(activeBoard.name) || 'my-template';
+
+      setTemplateName(defaultName);
+      setTemplateDescription(activeBoard.description || buildDefaultDescription(boardsForNaming));
+      setTemplateId(id);
+      setTemplatePath(`${category}/${id}`);
+      setTemplateTags(tags.join(','));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, selectedBoards, activeBoard.id, activeBoard.name]);
+
+  useEffect(() => {
+    // If user edits the journey name, keep snippet name in sync unless they also edited metadata.
+    if (templateMetaDirty) return;
+    if (!journeyNameDirty) return;
+    if (mode !== 'journey') return;
+    const id = slugify(journeyName) || 'my-template';
+    const category = guessCategoryFromBoards(selectedBoards);
+    setTemplateName(journeyName);
+    setTemplateId(id);
+    setTemplatePath(`${category}/${id}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [journeyName]);
 
   const registrySnippet: RegistryTemplate = useMemo(() => {
     const tags = templateTags
@@ -396,6 +469,33 @@ export function ExportTemplateModal(props: {
     }
   };
 
+  const publishChecklistText = useMemo(() => {
+    const repoHint = 'crm-templates';
+    const folder = templatePath.trim() || 'sales/my-template';
+    return [
+      '### Publicar na comunidade (checklist)',
+      '',
+      `1) No repositório \`${repoHint}\`, crie a pasta \`${folder}\``,
+      `2) Salve o arquivo exportado como: \`${folder}/journey.json\``,
+      '3) No `registry.json`, adicione o snippet (um item na lista `templates`)',
+      '4) Commit + push',
+      '5) No CRM: Boards → Criar board → Community → instale o template',
+      '',
+      'Dica: aumente `version` quando fizer mudanças e mantenha `id/path` estáveis.',
+      '',
+    ].join('\n');
+  }, [templatePath]);
+
+  const handleCopyPublishChecklist = async () => {
+    try {
+      await navigator.clipboard.writeText(publishChecklistText);
+      addToast('Checklist de publicação copiado!', 'success');
+    } catch (err) {
+      console.error('[ExportTemplateModal] checklist copy failed:', err);
+      addToast('Não consegui copiar (permissão do navegador).', 'error');
+    }
+  };
+
   return (
     <Modal
       isOpen={isOpen}
@@ -426,6 +526,16 @@ export function ExportTemplateModal(props: {
           >
             Importar JSON
           </button>
+          <button
+            type="button"
+            onClick={() => setPanel('publish')}
+            className={`px-3 py-2 rounded-lg text-sm font-semibold border transition-colors ${panel === 'publish'
+              ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 border-slate-900 dark:border-white'
+              : 'bg-white dark:bg-white/5 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/10'
+              }`}
+          >
+            Publicar
+          </button>
         </div>
 
         {panel === 'export' && (
@@ -453,6 +563,247 @@ export function ExportTemplateModal(props: {
           </div>
         )}
       </div>
+
+      {panel === 'publish' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="space-y-4">
+            <div className="rounded-xl border border-slate-200 dark:border-white/10 p-4 bg-slate-50/50 dark:bg-white/5">
+              <div className="text-sm font-bold text-slate-900 dark:text-white">Passo 1 — Gere o `journey.json`</div>
+              <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                Recomendado: publique como <b>Jornada</b> (mesmo se for 1 board).
+              </div>
+
+              <div className="mt-3 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMode('journey')}
+                  className={`px-3 py-2 rounded-lg text-sm font-semibold border transition-colors ${mode === 'journey'
+                    ? 'bg-primary-600 text-white border-primary-600'
+                    : 'bg-white dark:bg-white/5 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/10'
+                    }`}
+                >
+                  Jornada
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode('board')}
+                  className={`px-3 py-2 rounded-lg text-sm font-semibold border transition-colors ${mode === 'board'
+                    ? 'bg-primary-600 text-white border-primary-600'
+                    : 'bg-white dark:bg-white/5 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/10'
+                    }`}
+                >
+                  Board
+                </button>
+              </div>
+
+              <div className="mt-3">
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                  Nome da jornada (título público)
+                </label>
+                <input
+                  value={mode === 'journey' ? journeyName : activeBoard.name}
+                  onChange={e => {
+                    setJourneyName(e.target.value);
+                    setJourneyNameDirty(true);
+                  }}
+                  disabled={mode !== 'journey'}
+                  className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm disabled:opacity-60"
+                />
+              </div>
+
+              {mode === 'journey' && (
+                <div className="mt-3">
+                  <div className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+                    <b>Ordem exportada:</b> {selectedBoards.map(b => b.name).join(' → ') || '(nenhum)'}
+                  </div>
+                  <div className="rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 p-2 max-h-56 overflow-auto space-y-1">
+                    {boards.map(b => {
+                      const checked = selectedBoardIds.includes(b.id);
+                      const isSelected = checked;
+                      return (
+                        <div key={b.id} className="flex items-center justify-between gap-2 px-2 py-1 rounded-md hover:bg-slate-50 dark:hover:bg-white/10">
+                          <label className="flex items-center gap-2 text-sm text-slate-800 dark:text-slate-200 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleBoard(b.id)}
+                            />
+                            <span className="truncate">{b.name}</span>
+                          </label>
+                          {isSelected && (
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => moveSelected(b.id, -1)}
+                                className="p-1 rounded hover:bg-slate-100 dark:hover:bg-white/10"
+                                aria-label="Mover para cima"
+                              >
+                                <ArrowUp size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => moveSelected(b.id, 1)}
+                                className="p-1 rounded hover:bg-slate-100 dark:hover:bg-white/10"
+                                aria-label="Mover para baixo"
+                              >
+                                <ArrowDown size={14} />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-4 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleDownloadJourney}
+                  className="px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold flex items-center gap-2"
+                >
+                  <Download size={16} /> Baixar journey.json
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyJourneyJson}
+                  className="px-4 py-2 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-sm font-semibold flex items-center gap-2"
+                >
+                  <Copy size={16} /> Copiar journey.json
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setAdvancedOpen(v => !v)}
+                className="mt-3 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors"
+              >
+                {advancedOpen ? 'Ocultar avançado' : 'Mostrar avançado'}
+              </button>
+
+              {advancedOpen && (
+                <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">schemaVersion</label>
+                    <input
+                      value={schemaVersion}
+                      onChange={e => setSchemaVersion(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">slug prefix (opcional)</label>
+                    <input
+                      value={slugPrefix}
+                      onChange={e => setSlugPrefix(e.target.value)}
+                      placeholder="ex: sales"
+                      className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="rounded-xl border border-slate-200 dark:border-white/10 p-4 bg-slate-50/50 dark:bg-white/5">
+              <div className="text-sm font-bold text-slate-900 dark:text-white">Passo 2 — Registre no `registry.json`</div>
+              <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                Esses defaults são pensados pra comunidade. Edite só se precisar.
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">id</label>
+                  <input
+                    value={templateId}
+                    onChange={e => { setTemplateId(e.target.value); setTemplateMetaDirty(true); }}
+                    className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">path</label>
+                  <input
+                    value={templatePath}
+                    onChange={e => { setTemplatePath(e.target.value); setTemplateMetaDirty(true); }}
+                    className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">name</label>
+                  <input
+                    value={templateName}
+                    onChange={e => { setTemplateName(e.target.value); setTemplateMetaDirty(true); }}
+                    className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">description</label>
+                  <input
+                    value={templateDescription}
+                    onChange={e => { setTemplateDescription(e.target.value); setTemplateMetaDirty(true); }}
+                    className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">author</label>
+                  <input
+                    value={templateAuthor}
+                    onChange={e => { setTemplateAuthor(e.target.value); setTemplateMetaDirty(true); }}
+                    className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">version</label>
+                  <input
+                    value={templateVersion}
+                    onChange={e => { setTemplateVersion(e.target.value); setTemplateMetaDirty(true); }}
+                    className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">tags (separadas por vírgula)</label>
+                  <input
+                    value={templateTags}
+                    onChange={e => { setTemplateTags(e.target.value); setTemplateMetaDirty(true); }}
+                    className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-4 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopyRegistrySnippet}
+                  className="px-4 py-2 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-sm font-semibold flex items-center gap-2"
+                >
+                  <Copy size={16} /> Copiar snippet
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 dark:border-white/10 p-4 bg-slate-50/50 dark:bg-white/5">
+              <div className="text-sm font-bold text-slate-900 dark:text-white">Passo 3 — Checklist</div>
+              <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                Cole no seu README/PR pra não esquecer nada.
+              </div>
+              <div className="mt-3 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopyPublishChecklist}
+                  className="px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold flex items-center gap-2"
+                >
+                  <Copy size={16} /> Copiar checklist
+                </button>
+              </div>
+              <pre className="mt-3 text-xs whitespace-pre-wrap rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-black/30 p-3 max-h-40 overflow-auto">
+                {publishChecklistText}
+              </pre>
+            </div>
+          </div>
+        </div>
+      )}
 
       {panel === 'import' && (
         <div className="rounded-xl border border-slate-200 dark:border-white/10 p-4 bg-slate-50/50 dark:bg-white/5 space-y-4">
@@ -536,7 +887,7 @@ export function ExportTemplateModal(props: {
                   <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">nome da jornada</label>
                   <input
                     value={journeyName}
-                    onChange={e => setJourneyName(e.target.value)}
+                    onChange={e => { setJourneyName(e.target.value); setJourneyNameDirty(true); }}
                     className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm"
                   />
                 </div>
@@ -623,34 +974,34 @@ export function ExportTemplateModal(props: {
               Cole isso na lista `templates` do seu repositório de comunidade.
             </div>
 
-            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">id</label>
-                <input value={templateId} onChange={e => setTemplateId(e.target.value)} className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm" />
+                  <input value={templateId} onChange={e => { setTemplateId(e.target.value); setTemplateMetaDirty(true); }} className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">path</label>
-                <input value={templatePath} onChange={e => setTemplatePath(e.target.value)} className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm" />
+                <input value={templatePath} onChange={e => { setTemplatePath(e.target.value); setTemplateMetaDirty(true); }} className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm" />
               </div>
               <div className="sm:col-span-2">
                 <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">name</label>
-                <input value={templateName} onChange={e => setTemplateName(e.target.value)} className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm" />
+                <input value={templateName} onChange={e => { setTemplateName(e.target.value); setTemplateMetaDirty(true); }} className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm" />
               </div>
               <div className="sm:col-span-2">
                 <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">description</label>
-                <input value={templateDescription} onChange={e => setTemplateDescription(e.target.value)} className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm" />
+                <input value={templateDescription} onChange={e => { setTemplateDescription(e.target.value); setTemplateMetaDirty(true); }} className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">author</label>
-                <input value={templateAuthor} onChange={e => setTemplateAuthor(e.target.value)} className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm" />
+                <input value={templateAuthor} onChange={e => { setTemplateAuthor(e.target.value); setTemplateMetaDirty(true); }} className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">version</label>
-                <input value={templateVersion} onChange={e => setTemplateVersion(e.target.value)} className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm" />
+                <input value={templateVersion} onChange={e => { setTemplateVersion(e.target.value); setTemplateMetaDirty(true); }} className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm" />
               </div>
               <div className="sm:col-span-2">
                 <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">tags (separadas por vírgula)</label>
-                <input value={templateTags} onChange={e => setTemplateTags(e.target.value)} className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm" />
+                <input value={templateTags} onChange={e => { setTemplateTags(e.target.value); setTemplateMetaDirty(true); }} className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm" />
               </div>
             </div>
 

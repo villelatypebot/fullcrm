@@ -20,6 +20,7 @@
     - UX: ao selecionar boards para exportar uma jornada, a ordem exportada agora segue a ordem exibida na lista (em vez de “ordem de clique”), e o modal mostra “Ordem que será exportada”.
     - UX: ao abrir o modal, a seleção é automaticamente reordenada para seguir a lista (evita “ordem antiga” persistida entre aberturas).
     - Feature: adicionado **Importar JSON (local)** no mesmo modal (upload/colar `journey.json`), com validação e instalação sequencial para preservar a ordem dos boards.
+    - UX: adicionado modo **“Publicar”** (Jobs-style) com passos guiados (baixar/copy `journey.json` → copiar snippet → checklist) e defaults inteligentes para `id/path/name/description/tags`, escondendo opções avançadas.
 
 - **Merge de branches e consolidação na `main`**:
   - Merge de `chore/migrate-ai-actions-to-tasks`: introdução de endpoints em `/api/ai/tasks/*` (boards/deals/inbox) e migração parcial de chamadas para o novo client (`lib/ai/tasksClient.ts`), removendo rotas legacy.
