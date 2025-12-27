@@ -42,6 +42,7 @@
       - exibição/cópia de **URL + Secret**, exemplo de **cURL** e dicas por provedor (Hotmart/n8n/Make);
       - botão **Enviar teste** e lista de **Últimos recebidos** (consulta em `webhook_events_in`) para prova de funcionamento.
     - **Fix (CORS)**: `webhook-in` agora responde a **OPTIONS** e inclui headers CORS, permitindo executar o **“Enviar teste”** diretamente pelo browser sem erro “Failed to fetch”.
+    - **Outbound (Follow-up)**: payload do evento `deal.stage_changed` agora lista os campos `from_stage_*` antes de `to_stage_*` (melhor legibilidade ao inspecionar em ferramentas como n8n).
 - **Debug Mode (UX)**:
   - Debug agora é **reativo** (sem refresh): toggle dispara evento (`DEBUG_MODE_EVENT`) e `DebugFillButton` usa `useDebugMode`.
   - Fix: geração de telefone fake agora é determinística (sem `fromRegExp`, evitando `\\` no número).

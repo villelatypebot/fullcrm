@@ -1875,6 +1875,7 @@ BEGIN
         'value', NEW.value,
         'board_id', NEW.board_id,
         'board_name', board_name,
+        -- Ordem intencional: from -> to (fica mais legível em ferramentas como n8n)
         'from_stage_id', OLD.stage_id,
         'from_stage_label', from_label,
         'to_stage_id', NEW.stage_id,
