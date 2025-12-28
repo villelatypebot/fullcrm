@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertCircle, CheckCircle2, Loader2, RefreshCw, Shield } from 'lucide-react';
 import { AnimatePresence, motion, useMotionValue, useSpring } from 'framer-motion';
@@ -107,6 +107,21 @@ function humanizeSupabaseCreateError(message: string) {
   return message;
 }
 
+function buildSupabaseDbUrlFromPassword(input: {
+  projectRef: string;
+  dbPassword: string;
+  mode: 'direct' | 'transaction_pooler';
+}) {
+  const ref = input.projectRef.trim();
+  const pass = input.dbPassword.trim();
+  const host = `db.${ref}.supabase.co`;
+  const port = input.mode === 'transaction_pooler' ? 6543 : 5432;
+  const qs =
+    input.mode === 'transaction_pooler' ? 'sslmode=require&pgbouncer=true' : 'sslmode=require';
+  // Supabase docs typically use `postgres` as the default user for direct/pooler connection strings.
+  return `postgresql://postgres:${encodeURIComponent(pass)}@${host}:${port}/postgres?${qs}`;
+}
+
 /**
  * Componente React `InstallWizardPage`.
  * @returns {Element} Retorna um valor do tipo `Element`.
@@ -148,6 +163,8 @@ export default function InstallWizardPage() {
   const [supabaseResolveError, setSupabaseResolveError] = useState<string | null>(null);
   const [supabaseResolvedOk, setSupabaseResolvedOk] = useState(false);
   const [supabaseResolvedLabel, setSupabaseResolvedLabel] = useState<string | null>(null);
+  const supabaseAutoResolveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const supabaseAutoResolveAttemptsRef = useRef(0);
   const [supabaseMode, setSupabaseMode] = useState<'existing' | 'create'>('create');
   const [supabaseUiStep, setSupabaseUiStep] = useState<'pat' | 'project' | 'final'>('pat');
   const [supabasePatAutoAdvanced, setSupabasePatAutoAdvanced] = useState(false);
@@ -355,23 +372,34 @@ export default function InstallWizardPage() {
     if (inferred) setSupabaseProjectRef(inferred);
   }, [supabaseProjectRefTouched, supabaseUrl]);
 
+  const clearSupabaseAutoResolveTimer = () => {
+    const handle = supabaseAutoResolveTimerRef.current;
+    if (!handle) return;
+    clearTimeout(handle);
+    supabaseAutoResolveTimerRef.current = null;
+  };
+
   useEffect(() => {
     // If the user changes the base inputs, we should consider the previous resolution stale.
+    clearSupabaseAutoResolveTimer();
+    supabaseAutoResolveAttemptsRef.current = 0;
     setSupabaseResolvedOk(false);
     setSupabaseResolvedLabel(null);
-  }, [supabaseUrl, supabaseAccessToken]);
+  }, [supabaseUrl, supabaseAccessToken, supabaseProjectRef]);
 
   useEffect(() => {
-    // “Bruxaria”: se URL + PAT estiverem preenchidos, tenta auto-preencher com debounce.
-    if (!supabaseUrl.trim() || !supabaseAccessToken.trim()) return;
+    // “Bruxaria”: se PAT + (URL ou projectRef) estiverem preenchidos, tenta auto-preencher com debounce.
+    if (!supabaseAccessToken.trim()) return;
+    if (!supabaseUrl.trim() && !supabaseProjectRef.trim()) return;
     if (supabaseResolving || supabaseResolvedOk) return;
 
-    const handle = setTimeout(() => {
-      void resolveSupabase();
+    clearSupabaseAutoResolveTimer();
+    supabaseAutoResolveTimerRef.current = setTimeout(() => {
+      void resolveSupabase('auto');
     }, 650);
 
-    return () => clearTimeout(handle);
-  }, [supabaseUrl, supabaseAccessToken, supabaseResolving, supabaseResolvedOk]);
+    return () => clearSupabaseAutoResolveTimer();
+  }, [supabaseUrl, supabaseAccessToken, supabaseProjectRef, supabaseResolving, supabaseResolvedOk]);
 
   const passwordValid = adminPassword.length >= 6;
   const passwordsMatch =
@@ -507,8 +535,29 @@ export default function InstallWizardPage() {
     setCurrentStep((step) => Math.max(step - 1, 0));
   };
 
-  const resolveSupabase = async () => {
+  const resolveSupabase = async (mode: 'manual' | 'auto' = 'manual') => {
     if (supabaseResolving) return;
+    const pat = supabaseAccessToken.trim();
+    const url = supabaseUrl.trim();
+    const ref = supabaseProjectRef.trim();
+
+    if (!pat) {
+      if (mode === 'manual') {
+        setSupabaseResolveError('Cole seu Supabase PAT para continuar.');
+        setSupabaseAdvanced(true);
+      }
+      return;
+    }
+
+    if (!url && !ref) {
+      if (mode === 'manual') {
+        setSupabaseResolveError('Selecione um projeto (ou informe a URL/ref) para resolver as chaves.');
+        setSupabaseAdvanced(true);
+      }
+      return;
+    }
+
+    clearSupabaseAutoResolveTimer();
     setSupabaseResolveError(null);
     setSupabaseResolving(true);
     setSupabaseResolvedOk(false);
@@ -520,9 +569,9 @@ export default function InstallWizardPage() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           installerToken: installerToken.trim() || undefined,
-          accessToken: supabaseAccessToken.trim(),
-          supabaseUrl: supabaseUrl.trim() || undefined,
-          projectRef: supabaseProjectRef.trim() || undefined,
+          accessToken: pat,
+          supabaseUrl: url || undefined,
+          projectRef: ref || undefined,
         }),
       });
       const data = await res.json();
@@ -538,10 +587,57 @@ export default function InstallWizardPage() {
       if (typeof data?.dbUrl === 'string') setSupabaseDbUrl(data.dbUrl);
 
       const warnings = Array.isArray(data?.warnings) ? data.warnings : [];
+      const apiDbUrl = typeof data?.dbUrl === 'string' ? String(data.dbUrl).trim() : '';
+      const effectiveDbUrl = supabaseDbUrl.trim() || apiDbUrl;
+      const hasDbUrl = Boolean(effectiveDbUrl);
+      const isOnlyDbWarnings =
+        warnings.length > 0 &&
+        warnings.every((w) => String(w || '').toLowerCase().startsWith('db:'));
+
+      // Auto-retry controlado: alguns projetos novos demoram para liberar a conexão do DB.
+      // Tentamos algumas vezes com backoff; depois paramos e deixamos o usuário decidir.
+      const MAX_AUTO_DB_RETRIES = 6;
+      const AUTO_DB_RETRY_DELAYS_MS = [700, 1200, 2000, 3200, 5000, 8000];
+
       if (warnings.length > 0) {
+        // If we already have a DB URL (manual or from create flow), treat DB warnings as non-blocking.
+        if (isOnlyDbWarnings && hasDbUrl) {
+          supabaseAutoResolveAttemptsRef.current = 0;
+          const pubType =
+            typeof data?.publishableKeyType === 'string' ? String(data.publishableKeyType) : 'publishable/anon';
+          const secType =
+            typeof data?.secretKeyType === 'string' ? String(data.secretKeyType) : 'secret/service_role';
+          setSupabaseResolvedOk(true);
+          setSupabaseResolvedLabel(`OK — chaves (${pubType}/${secType}) resolvidas (DB já definido)`);
+          setSupabaseAdvanced(false);
+          return;
+        }
+
+        if (mode === 'auto' && isOnlyDbWarnings && !hasDbUrl) {
+          supabaseAutoResolveAttemptsRef.current += 1;
+          const attempt = supabaseAutoResolveAttemptsRef.current;
+          const remaining = Math.max(0, MAX_AUTO_DB_RETRIES - attempt);
+
+          setSupabaseResolveError(
+            `Aguardando o banco ficar pronto… (${attempt}/${MAX_AUTO_DB_RETRIES}). ${
+              remaining > 0 ? 'Tentando novamente já já.' : 'Você pode tentar novamente ou preencher o DB manualmente.'
+            }`
+          );
+          setSupabaseAdvanced(true);
+
+          if (attempt < MAX_AUTO_DB_RETRIES) {
+            const delay = AUTO_DB_RETRY_DELAYS_MS[Math.min(attempt - 1, AUTO_DB_RETRY_DELAYS_MS.length - 1)];
+            supabaseAutoResolveTimerRef.current = setTimeout(() => {
+              void resolveSupabase('auto');
+            }, delay);
+          }
+          return;
+        }
+
         setSupabaseResolveError(`Alguns itens não foram resolvidos: ${warnings.join(' | ')}`);
         setSupabaseAdvanced(true);
       } else {
+        supabaseAutoResolveAttemptsRef.current = 0;
         const pubType =
           typeof data?.publishableKeyType === 'string' ? String(data.publishableKeyType) : 'publishable/anon';
         const secType =
@@ -1019,8 +1115,20 @@ export default function InstallWizardPage() {
       }
       if (url) setSupabaseUrl(url);
 
+      // If this project was created through the wizard, we already know the DB password.
+      // Prefer Transaction Pooler (6543) to avoid IPv6-only direct connections on IPv4 networks.
+      if (ref && supabaseCreateDbPass.trim()) {
+        setSupabaseDbUrl(
+          buildSupabaseDbUrlFromPassword({
+            projectRef: ref,
+            dbPassword: supabaseCreateDbPass,
+            mode: 'transaction_pooler',
+          })
+        );
+      }
+
       // Immediately resolve keys/db.
-      await resolveSupabase();
+      await resolveSupabase('manual');
       setSupabaseMode('existing');
       setSupabaseUiStep('final');
     } catch (err) {
@@ -1947,8 +2055,12 @@ export default function InstallWizardPage() {
                           </div>
                           <button
                             type="button"
-                            onClick={resolveSupabase}
-                            disabled={supabaseResolving || !supabaseUrl.trim() || !supabaseAccessToken.trim()}
+                            onClick={() => void resolveSupabase('manual')}
+                            disabled={
+                              supabaseResolving ||
+                              !supabaseAccessToken.trim() ||
+                              (!supabaseUrl.trim() && !supabaseProjectRef.trim())
+                            }
                             className="px-3 py-2 rounded-lg text-sm font-semibold bg-primary-600 text-white hover:bg-primary-500 disabled:opacity-50"
                           >
                             Tentar novamente
@@ -1957,8 +2069,12 @@ export default function InstallWizardPage() {
                       ) : (
                         <button
                           type="button"
-                          onClick={resolveSupabase}
-                          disabled={supabaseResolving || !supabaseUrl.trim() || !supabaseAccessToken.trim()}
+                          onClick={() => void resolveSupabase('manual')}
+                          disabled={
+                            supabaseResolving ||
+                            !supabaseAccessToken.trim() ||
+                            (!supabaseUrl.trim() && !supabaseProjectRef.trim())
+                          }
                           className={`px-3 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 ${TEAL.solid}`}
                         >
                           Rodar auto-preenchimento agora

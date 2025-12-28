@@ -377,81 +377,81 @@ export default function InstallStartPage() {
                   className="relative z-10"
                 >
                   {step === 'success' ? (
-                    <div className="text-center py-10">
+                <div className="text-center py-10">
                       <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-cyan-500/10 mb-4 border border-cyan-200 dark:border-cyan-900/30">
                         <CheckCircle2 className="w-7 h-7 text-cyan-600 dark:text-cyan-300" />
-                      </div>
-                      <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">
+                  </div>
+                  <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">
                         Rota confirmada
-                      </h2>
-                      <p className="text-slate-500 dark:text-slate-400 text-sm">
+                  </h2>
+                  <p className="text-slate-500 dark:text-slate-400 text-sm">
                         Entrando no wizard…
-                      </p>
-                    </div>
-                  ) : step === 'confirm' && project ? (
-                    <div className="space-y-6">
-                      <div className="text-center">
-                        <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">
-                          Projeto encontrado
-                        </h2>
-                        <p className="text-slate-500 dark:text-slate-400 text-sm">
+                  </p>
+                </div>
+              ) : step === 'confirm' && project ? (
+                <div className="space-y-6">
+                  <div className="text-center">
+                    <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">
+                      Projeto encontrado
+                    </h2>
+                    <p className="text-slate-500 dark:text-slate-400 text-sm">
                           Confirme se este é o destino correto.
-                        </p>
-                      </div>
+                    </p>
+                  </div>
 
-                      <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-3">
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-slate-500 dark:text-slate-400">Nome</span>
-                          <span className="text-slate-900 dark:text-white font-medium">
-                            {project.name}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-slate-500 dark:text-slate-400">URL</span>
-                          <a
-                            href={`https://${project.url || `${project.name}.vercel.app`}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                  <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-3">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-slate-500 dark:text-slate-400">Nome</span>
+                      <span className="text-slate-900 dark:text-white font-medium">
+                        {project.name}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-slate-500 dark:text-slate-400">URL</span>
+                      <a
+                        href={`https://${project.url || `${project.name}.vercel.app`}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
                             className={`${TEAL.solidText} hover:underline flex items-center gap-1`}
-                          >
-                            {project.url || `${project.name}.vercel.app`}
-                            <ExternalLink className="w-3 h-3" />
-                          </a>
-                        </div>
-                        <div className="flex items-center justify-between text-sm">
+                      >
+                        {project.url || `${project.name}.vercel.app`}
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
                           <span className="text-slate-500 dark:text-slate-400">Domínio atual</span>
-                          <span className="text-slate-900 dark:text-white font-mono">
-                            {typeof window !== 'undefined' ? window.location.hostname : ''}
-                          </span>
-                        </div>
+                      <span className="text-slate-900 dark:text-white font-mono">
+                        {typeof window !== 'undefined' ? window.location.hostname : ''}
+                      </span>
+                    </div>
                         <div className="flex items-center justify-between text-sm">
                           <span className="text-slate-500 dark:text-slate-400">PAT</span>
                           <span className="text-slate-900 dark:text-white font-mono">
                             {maskValue(token)}
                           </span>
                         </div>
-                      </div>
+                  </div>
 
-                      <div className="flex gap-3">
-                        <button
-                          type="button"
-                          onClick={handleReset}
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={handleReset}
                           disabled={isLoading}
                           className={`flex-1 border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 font-medium py-3 rounded-xl transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 ${TEAL.ring} active:scale-[0.99] disabled:opacity-50`}
-                        >
-                          Voltar
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleConfirm}
+                    >
+                      Voltar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleConfirm}
                           disabled={isLoading}
                           className="flex-1 bg-cyan-600 hover:bg-cyan-500 text-white font-medium py-3 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/15 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-cyan-400/30 active:scale-[0.98] disabled:opacity-50"
-                        >
+                    >
                           Confirmar e decolar
-                          <ArrowRight className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
                   ) : step === 'validating' ? (
                     <div className="py-10 text-center space-y-3">
                       <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-cyan-500/10 border border-cyan-200 dark:border-cyan-900/30">
@@ -464,16 +464,16 @@ export default function InstallStartPage() {
                         Estamos detectando o projeto deste deploy.
                       </div>
                     </div>
-                  ) : (
-                    <form onSubmit={handleSubmit} className="space-y-5">
-                      <div>
-                        <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">
-                          Token da Vercel
-                        </h2>
-                        <p className="text-slate-500 dark:text-slate-400 text-sm">
-                          Vamos usar seu token para configurar as envs automaticamente.
-                        </p>
-                      </div>
+              ) : (
+                <form onSubmit={handleSubmit} className="space-y-5">
+                  <div>
+                    <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">
+                      Token da Vercel
+                    </h2>
+                    <p className="text-slate-500 dark:text-slate-400 text-sm">
+                      Vamos usar seu token para configurar as envs automaticamente.
+                    </p>
+                  </div>
 
                   {meta.requiresToken ? (
                     <div className="space-y-2">

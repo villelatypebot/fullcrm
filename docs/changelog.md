@@ -48,7 +48,10 @@
     - Wizard permite **listar projetos via PAT** e selecionar (preenche `projectRef`/`supabaseUrl`).
     - Wizard permite **criar projeto via PAT** (listar orgs → criar projeto com `db_pass` + região smart group) e já auto-preencher o resto.
     - Auto-preenchimento passou a priorizar keys **`publishable/secret`** com fallback para `anon/service_role`.
-    - Auto-resolve roda automaticamente (debounce) quando URL+PAT estão preenchidos.
+    - Auto-resolve roda automaticamente (debounce) quando PAT + (URL ou `projectRef`) estão preenchidos.
+    - Fix (Supabase resolve loop): quando o DB ainda não está pronto em projetos recém-criados, o auto-resolve agora usa **backoff + limite de tentativas** (e evita request 400 quando ainda não há `projectRef/url`), mostrando mensagem “Aguardando o banco ficar pronto…” em vez de ficar martelando a API.
+    - Fix (Supabase IPv4/IPv6): para evitar o erro “Not IPv4 compatible”/`ipv6 address is not defined`, o instalador passou a **preferir Transaction Pooler (porta 6543)** ao montar `dbUrl` (no create-flow, usando o `db_pass` informado; e no backend, quando consegue gerar credenciais via `cli/login-role`).
+    - Fix (Supabase migrations SSL): normalizado `dbUrl` removendo `sslmode` da query string e forçando conexão TLS “no-verify” via `pg` no step de migrations para evitar falhas `self-signed certificate in certificate chain` em redes com proxy/CA corporativa.
     - Preview de Edge Functions em `GET /api/installer/supabase/functions` (lista slugs + `verify_jwt` inferido).
   - Edge Functions:
     - Deploy ganhou **concorrência limitada** e **retry/backoff** (reduz falhas transitórias).
