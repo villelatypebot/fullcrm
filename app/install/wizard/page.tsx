@@ -593,38 +593,45 @@ export default function InstallWizardPage() {
   };
   
   const pollProjectStatus = async (projectRef: string): Promise<string> => {
-    const maxAttempts = 15; // 30s total (2s * 15)
+    const maxMs = 180_000; // 3min (pausar pode demorar)
+    const intervalMs = 2000;
+    const maxAttempts = Math.ceil(maxMs / intervalMs);
     let attempts = 0;
-    
+
     while (attempts < maxAttempts) {
       try {
         const res = await fetch('/api/installer/supabase/project-status', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ 
-            installerToken: installerToken.trim() || undefined, 
-            accessToken: supabaseAccessToken.trim(), 
-            projectRef 
+          body: JSON.stringify({
+            installerToken: installerToken.trim() || undefined,
+            accessToken: supabaseAccessToken.trim(),
+            projectRef,
           }),
         });
-        
+
         if (res.ok) {
-          const data = await res.json();
-          console.log(`[pollProjectStatus] Attempt ${attempts + 1}: status = ${data.status}`);
-          
-          if (data.status === 'INACTIVE') {
-            return 'INACTIVE';
-          }
+          const data = await res.json().catch(() => null);
+          const rawStatus = String(data?.status ?? '').trim();
+          const status = rawStatus.toUpperCase();
+          console.log(`[pollProjectStatus] Attempt ${attempts + 1}: status = ${rawStatus || '(null)'}`);
+
+          // "Pausado" no dashboard pode vir como INACTIVE/PAUSED (ou variantes)
+          const isPaused = status === 'INACTIVE' || status.startsWith('INACTIVE') || status.includes('PAUSED') || status === 'PAUSED';
+          if (isPaused) return 'INACTIVE';
+
+          // Se sair de PAUSING pra outro status, atualiza e sai pra destravar UI
+          if (status && !status.includes('PAUSING')) return status;
         }
       } catch (err) {
         console.error('[pollProjectStatus] Error:', err);
       }
-      
+
       attempts++;
-      await new Promise(resolve => setTimeout(resolve, 2000)); // Aguarda 2s
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
     }
-    
-    throw new Error('Timeout aguardando projeto pausar (30s)');
+
+    throw new Error('Timeout aguardando projeto pausar (3min)');
   };
   
   const pauseProject = async (projectRef: string) => {

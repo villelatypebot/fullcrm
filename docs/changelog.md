@@ -2,6 +2,13 @@
 
 ## 28/12/2025
 
+- **Installer Wizard — Polling de pausa mais tolerante**:
+  - **Problema**: A API do Supabase pode retornar status de pausa como `PAUSED`, `inactive` ou variantes (não exatamente `INACTIVE`), causando timeout mesmo com o projeto já pausado no painel.
+  - **Solução**: O polling agora normaliza o status e considera pausado quando:
+    - `status.startsWith("INACTIVE")` **ou** `status.includes("PAUSED")` (case-insensitive)
+  - **Melhoria**: timeout aumentado para **3 minutos** (pausar pode demorar mais que 30s), evitando falso-negativo.
+  - **Arquivo**: `app/install/wizard/page.tsx` (`pollProjectStatus`)
+
 - **Fix (Convites — UI não atualiza após gerar link)**:
   - Corrigido problema onde o link gerado não aparecia na UI até fechar e reabrir o modal. Agora o estado é atualizado forçadamente após gerar o link, criando uma nova referência de array para garantir re-render.
   - Melhorado o filtro de convites expirados para tratar melhor casos de timezone e garantir que apenas convites válidos sejam exibidos.
