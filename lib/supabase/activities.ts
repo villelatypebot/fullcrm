@@ -15,6 +15,7 @@
 import { supabase } from './client';
 import { Activity } from '@/types';
 import { sanitizeUUID } from './utils';
+import { sortActivitiesSmart } from '@/lib/utils/activitySort';
 
 // ============================================
 // HELPERS REMOVED
@@ -107,8 +108,6 @@ const transformActivityToDb = (activity: Partial<Activity>): Partial<DbActivity>
 
   return db;
 };
-
-import { sortActivitiesSmart } from '@/lib/utils/activitySort';
 
 export const activitiesService = {
   /**

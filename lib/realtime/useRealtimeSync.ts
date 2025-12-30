@@ -14,6 +14,9 @@ import { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supab
 import { supabase } from '@/lib/supabase';
 import { queryKeys } from '@/lib/query/queryKeys';
 
+// Enable detailed Realtime logging in development or when DEBUG_REALTIME env var is set
+const DEBUG_REALTIME = process.env.NODE_ENV === 'development' || process.env.NEXT_PUBLIC_DEBUG_REALTIME === 'true';
+
 // Tables that support realtime sync
 type RealtimeTable =
   | 'deals'
@@ -79,7 +82,9 @@ export function useRealtimeSync(
 
     // Cleanup existing channel if any
     if (channelRef.current) {
-      console.log(`[Realtime] Cleaning up existing channel: ${channelName}`);
+      if (DEBUG_REALTIME) {
+        console.log(`[Realtime] Cleaning up existing channel: ${channelName}`);
+      }
       sb.removeChannel(channelRef.current);
       channelRef.current = null;
     }
@@ -98,7 +103,9 @@ export function useRealtimeSync(
           table,
         },
         (payload: RealtimePostgresChangesPayload<Record<string, unknown>>) => {
-          console.log(`[Realtime] ${table} ${payload.eventType}:`, payload);
+          if (DEBUG_REALTIME) {
+            console.log(`[Realtime] ${table} ${payload.eventType}:`, payload);
+          }
 
           // Call custom callback if provided
           onchangeRef.current?.(payload);
@@ -122,21 +129,23 @@ export function useRealtimeSync(
             // - refetchQueries() forces immediate refetch of matching queries
             // - We use both to ensure: 1) mark as stale, 2) force immediate refetch
             pendingInvalidationsRef.current.forEach(queryKey => {
-              console.log(`[Realtime] Invalidating and refetching queries immediately for INSERT:`, queryKey);
-              
-              // Check if there are any queries in cache matching this key
-              const cache = queryClient.getQueryCache();
-              const matchingQueries = cache.findAll({ queryKey, exact: false });
-              console.log(`[Realtime] Found ${matchingQueries.length} queries in cache for key:`, queryKey);
-              
-              // Log query states for debugging
-              matchingQueries.forEach((query, idx) => {
-                console.log(`[Realtime] Query ${idx + 1}:`, {
-                  queryKey: query.queryKey,
-                  state: query.state.status,
-                  isStale: query.isStale(),
+              if (DEBUG_REALTIME) {
+                console.log(`[Realtime] Invalidating and refetching queries immediately for INSERT:`, queryKey);
+                
+                // Check if there are any queries in cache matching this key
+                const cache = queryClient.getQueryCache();
+                const matchingQueries = cache.findAll({ queryKey, exact: false });
+                console.log(`[Realtime] Found ${matchingQueries.length} queries in cache for key:`, queryKey);
+                
+                // Log query states for debugging
+                matchingQueries.forEach((query, idx) => {
+                  console.log(`[Realtime] Query ${idx + 1}:`, {
+                    queryKey: query.queryKey,
+                    state: query.state.status,
+                    isStale: query.isStale(),
+                  });
                 });
-              });
+              }
               
               // Step 1: Invalidate and force refetch of all matching queries
               // According to TanStack Query v5 docs:
@@ -158,21 +167,28 @@ export function useRealtimeSync(
               });
               
               // Log result for debugging
-              refetchPromise
-                .then((result) => {
-                  // refetchQueries returns an array of queries, but may be undefined in some cases
-                  const refetchedCount = Array.isArray(result) ? result.length : 0;
-                  if (refetchedCount > 0) {
-                    console.log(`[Realtime] ✅ Successfully refetched ${refetchedCount} queries for key:`, queryKey);
-                  } else {
-                    // Note: invalidateQueries with refetchType: 'all' above should have already refetched
-                    // This is just a fallback, so no warning needed if it's 0
-                    console.log(`[Realtime] ℹ️ Refetch fallback: ${refetchedCount} queries (invalidateQueries should have already handled it)`);
-                  }
-                })
-                .catch((err) => {
+              if (DEBUG_REALTIME) {
+                refetchPromise
+                  .then((result) => {
+                    // refetchQueries returns a Promise that resolves to an array of query results (TanStack Query v5)
+                    const refetchedCount = Array.isArray(result) ? result.length : 0;
+                    if (refetchedCount > 0) {
+                      console.log(`[Realtime] ✅ Successfully refetched ${refetchedCount} queries for key:`, queryKey);
+                    } else {
+                      // Note: invalidateQueries with refetchType: 'all' above should have already refetched
+                      // This is just a fallback, so no warning needed if it's 0
+                      console.log(`[Realtime] ℹ️ Refetch fallback: ${refetchedCount} queries (invalidateQueries should have already handled it)`);
+                    }
+                  })
+                  .catch((err) => {
+                    console.error(`[Realtime] ❌ Error refetching queries:`, err);
+                  });
+              } else {
+                // Still catch errors even when not logging
+                refetchPromise.catch((err) => {
                   console.error(`[Realtime] ❌ Error refetching queries:`, err);
                 });
+              }
             });
             pendingInvalidationsRef.current.clear();
           } else {
@@ -184,7 +200,9 @@ export function useRealtimeSync(
             debounceTimerRef.current = setTimeout(() => {
               // Invalidate all pending queries
               pendingInvalidationsRef.current.forEach(queryKey => {
-                console.log(`[Realtime] Invalidating queries (debounced):`, queryKey);
+                if (DEBUG_REALTIME) {
+                  console.log(`[Realtime] Invalidating queries (debounced):`, queryKey);
+                }
                 queryClient.invalidateQueries({ queryKey });
               });
               pendingInvalidationsRef.current.clear();
@@ -196,17 +214,23 @@ export function useRealtimeSync(
 
     // Subscribe to channel
     channel.subscribe((status) => {
-      console.log(`[Realtime] Channel ${channelName} status:`, status);
+      if (DEBUG_REALTIME) {
+        console.log(`[Realtime] Channel ${channelName} status:`, status);
+      }
       setIsConnected(status === 'SUBSCRIBED');
       
       if (status === 'SUBSCRIBED') {
-        console.log(`[Realtime] Successfully subscribed to ${tableList.join(', ')}`);
+        if (DEBUG_REALTIME) {
+          console.log(`[Realtime] Successfully subscribed to ${tableList.join(', ')}`);
+        }
       } else if (status === 'CHANNEL_ERROR') {
         console.error(`[Realtime] Channel error for ${channelName}`);
       } else if (status === 'TIMED_OUT') {
         console.warn(`[Realtime] Channel timeout for ${channelName}`);
       } else if (status === 'CLOSED') {
-        console.warn(`[Realtime] Channel closed for ${channelName}`);
+        if (DEBUG_REALTIME) {
+          console.warn(`[Realtime] Channel closed for ${channelName}`);
+        }
       }
     });
 

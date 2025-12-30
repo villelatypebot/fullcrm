@@ -121,9 +121,6 @@ describe('Story — US-001: Abrir deal no Boards', () => {
 
     const Harness = ({ open }: { open: boolean }) => (
       <div>
-        <button type="button" onClick={() => { /* story step uses rerender */ }}>
-          Abrir deal
-        </button>
         <DealDetailModal dealId="deal-1" isOpen={open} onClose={() => {}} />
       </div>
     );

@@ -34,9 +34,7 @@
   - **Documentação**: Criado `docs/realtime-analysis.md` com análise completa da stack e possíveis causas de problemas.
   - **Arquivos**: `lib/realtime/useRealtimeSync.ts`, `lib/query/hooks/useActivitiesQuery.ts`, `docs/realtime-analysis.md`
 
-## 30/12/2025
-
-- **Central de I.A — Melhoria de UX nos toggles**:
+### Central de I.A — Melhoria de UX nos toggles
   - **Problema**: Toggles não deixavam claro se estavam habilitados ou desabilitados (cores inconsistentes).
   - **Solução**: Padronização de todos os toggles para usar **verde quando ligado** e **vermelho quando desligado** (padrão universal).
   - **Aplicado em**: Toggle "IA ativa na organização", "Modo Pensamento (Thinking)", "Google Search Grounding", "Prompt Caching" e todas as funções de IA.

@@ -1,5 +1,5 @@
 import { screen } from '@testing-library/react';
-import type { userEvent as UserEventType } from '@testing-library/user-event';
+import type { UserEvent } from '@testing-library/user-event';
 
 type Locator =
   | { role: Parameters<typeof screen.getByRole>[0]; name: string | RegExp }
@@ -18,7 +18,7 @@ function getEl(target: Locator): HTMLElement {
   return screen.getByText(target.text);
 }
 
-export async function runStorySteps(user: typeof UserEventType, steps: StoryStep[]) {
+export async function runStorySteps(user: UserEvent, steps: StoryStep[]) {
   for (const step of steps) {
     if (step.kind === 'click') {
       await user.click(getEl(step.target));
