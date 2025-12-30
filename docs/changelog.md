@@ -1,5 +1,14 @@
 # Changelog
 
+## 30/12/2025
+
+- **Installer Wizard — Supabase Free limit (global) + menos “projetos fantasmas”**:
+  - **Problema**: usuários no plano Free do Supabase podem ter limite **global por usuário** (2 projetos ativos), então o wizard tentava criar em outra org “com slot” e falhava com erro 400 (parecia travar).
+  - **Solução (fluxo)**: quando o preflight detecta `freeGlobalLimitHit=true`, o wizard vai direto para **“Precisamos de espaço”** (sem tentar criar projeto).
+  - **Solução (nomes)**: antes de criar, o wizard agora pré-carrega os nomes de projetos da organização (incluindo `INACTIVE`) para evitar cascata de `PROJECT_EXISTS` (409) e “aparência de que criou vários bancos”.
+  - **UX**: durante a pausa de projeto, a UI mostra que pode levar até ~3 minutos e exibe telemetria (tempo/tentativas/status).
+  - **Arquivo**: `app/install/wizard/page.tsx`
+
 ## 29/12/2025
 
 - **Installer — Bloqueio de acesso após instalação completa**:

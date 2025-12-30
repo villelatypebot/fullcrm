@@ -85,6 +85,15 @@ function humanizeError(message: string) {
   return message;
 }
 
+function isSupabaseFreeGlobalLimitError(message: string) {
+  const lower = String(message || '').toLowerCase();
+  return (
+    lower.includes('2 project limit') ||
+    lower.includes('maximum limits') ||
+    lower.includes('limit of 2 active projects')
+  );
+}
+
 function buildDbUrl(projectRef: string, dbPassword: string, region?: string) {
   // Usa o pooler regional do Supabase que é mais confiável que db.xxx.supabase.co
   // O user precisa incluir o projectRef: postgres.projectRef
@@ -148,9 +157,14 @@ export default function InstallWizardPage() {
   const [supabaseProvisioningStatus, setSupabaseProvisioningStatus] = useState<string | null>(null);
   const [supabaseResolving, setSupabaseResolving] = useState(false);
   const [pausePolling, setPausePolling] = useState(false);
+  const [pauseStartedAt, setPauseStartedAt] = useState<number | null>(null);
+  const [pauseAttempts, setPauseAttempts] = useState(0);
+  const [pauseLastStatus, setPauseLastStatus] = useState('');
   const [supabaseResolveError, setSupabaseResolveError] = useState<string | null>(null);
   const [supabaseResolvedOk, setSupabaseResolvedOk] = useState(false);
   const [supabasePausingRef, setSupabasePausingRef] = useState<string | null>(null);
+  const [needSpaceReason, setNeedSpaceReason] = useState<'global_limit' | 'no_slot' | null>(null);
+  const orgProjectNamesCacheRef = useRef<Record<string, string[]>>({});
   
   // Preflight
   const [supabasePreflight, setSupabasePreflight] = useState<{
@@ -509,7 +523,17 @@ export default function InstallWizardPage() {
     const paidOrg = preflight.organizations.find((o) => (o.plan || '').toLowerCase() !== 'free');
     if (paidOrg) {
       console.log('💰 [SUPABASE] Usando org PAGA:', paidOrg.slug);
+      setNeedSpaceReason(null);
       await createProjectInOrg(paidOrg.slug, paidOrg.activeProjects.map((p) => p.name));
+      return;
+    }
+
+    // Em contas FREE, o limite pode ser GLOBAL por usuário (não por organização).
+    // Se o preflight indicar que o usuário já atingiu o limite global, não tente criar projeto.
+    if (preflight.freeGlobalLimitHit) {
+      console.log('🚫 [SUPABASE] Limite global FREE atingido (usuário). Indo para needspace.');
+      setNeedSpaceReason('global_limit');
+      setSupabaseUiStep('needspace');
       return;
     }
     
@@ -518,11 +542,13 @@ export default function InstallWizardPage() {
     );
     if (freeOrgWithSlot) {
       console.log('🆓 [SUPABASE] Usando org FREE com slot:', freeOrgWithSlot.slug, '- Projetos ativos:', freeOrgWithSlot.activeCount);
+      setNeedSpaceReason(null);
       await createProjectInOrg(freeOrgWithSlot.slug, freeOrgWithSlot.activeProjects.map((p) => p.name));
       return;
     }
     
     console.log('🚫 [SUPABASE] Sem slots disponíveis');
+    setNeedSpaceReason('no_slot');
     setSupabaseUiStep('needspace');
   };
   
@@ -530,6 +556,7 @@ export default function InstallWizardPage() {
     if (supabaseCreating) return;
     setSupabaseCreateError(null);
     setSupabaseCreating(true);
+    setNeedSpaceReason(null);
     // Pula direto para 'done' (tela de provisioning cinematográfica) - não mostra 'creating'
     setSupabaseUiStep('done');
     setSupabaseProvisioning(true);
@@ -539,6 +566,39 @@ export default function InstallWizardPage() {
 
     try {
       const names = new Set(existingNames);
+
+      // Pré-carrega nomes já existentes (inclui INACTIVE) para evitar cascata de 409.
+      if (!orgProjectNamesCacheRef.current[orgSlug]) {
+        try {
+          const orgProjectsRes = await fetch('/api/installer/supabase/organization-projects', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              installerToken: installerToken.trim() || undefined,
+              accessToken: supabaseAccessToken.trim(),
+              organizationSlug: orgSlug,
+            }),
+          });
+          const orgProjectsData = await orgProjectsRes.json().catch(() => null);
+          if (orgProjectsRes.ok) {
+            const allNames = Array.isArray(orgProjectsData?.projects)
+              ? (orgProjectsData.projects as any[])
+                  .map((p) => (typeof p?.name === 'string' ? p.name.trim() : ''))
+                  .filter(Boolean)
+              : [];
+            orgProjectNamesCacheRef.current[orgSlug] = allNames;
+          } else {
+            orgProjectNamesCacheRef.current[orgSlug] = [];
+            console.warn('[SUPABASE] Failed to list org projects for name seeding:', orgProjectsData?.error);
+          }
+        } catch {
+          orgProjectNamesCacheRef.current[orgSlug] = [];
+        }
+      }
+
+      for (const n of orgProjectNamesCacheRef.current[orgSlug] || []) {
+        names.add(n);
+      }
       let ref = '';
       let url = '';
       let lastErr = '';
@@ -642,7 +702,11 @@ export default function InstallWizardPage() {
       }, 210_000);
     } catch (err) {
       console.error('❌ [SUPABASE] Erro:', err);
-      setSupabaseCreateError(humanizeError(err instanceof Error ? err.message : 'Erro'));
+      const rawMsg = err instanceof Error ? err.message : 'Erro';
+      if (isSupabaseFreeGlobalLimitError(rawMsg)) {
+        setNeedSpaceReason('global_limit');
+      }
+      setSupabaseCreateError(humanizeError(rawMsg));
       setSupabaseUiStep('needspace');
     } finally {
       setSupabaseCreating(false);
@@ -689,6 +753,8 @@ export default function InstallWizardPage() {
       try {
         const { rawStatus, normalized } = await fetchProjectStatus(projectRef);
         console.log(`[pollProjectStatus:${mode}] Attempt ${attempts + 1}: status = ${rawStatus || '(null)'}`);
+        setPauseAttempts(attempts + 1);
+        setPauseLastStatus(rawStatus || '');
 
         const paused = isPausedProjectStatus(normalized);
         if (paused) return { finalStatus: 'INACTIVE', paused: true };
@@ -713,6 +779,9 @@ export default function InstallWizardPage() {
     if (supabasePausingRef) return;
     setSupabasePausingRef(projectRef);
     setPausePolling(true);
+    setPauseStartedAt(Date.now());
+    setPauseAttempts(0);
+    setPauseLastStatus('');
     setSupabaseCreateError(null);
     
     try {
@@ -749,6 +818,7 @@ export default function InstallWizardPage() {
     } finally {
       setSupabasePausingRef(null);
       setPausePolling(false);
+      setPauseStartedAt(null);
     }
   };
   
@@ -1144,14 +1214,35 @@ export default function InstallWizardPage() {
                         <Pause className="w-8 h-8 text-amber-400" />
                       </div>
                       <h1 className="text-2xl font-bold text-white mb-2">Precisamos de espaço</h1>
-                      <p className="text-slate-400">Seu plano permite 2 projetos ativos.<br />Pause um para continuar:</p>
+                      <p className="text-slate-400">
+                        {needSpaceReason === 'global_limit' || supabasePreflight?.freeGlobalLimitHit
+                          ? (
+                            <>
+                              Você atingiu o limite do plano Free no Supabase (máximo de 2 projetos ativos por usuário).<br />
+                              Pause 1 projeto para continuar:
+                            </>
+                          )
+                          : (
+                            <>
+                              Seu plano permite 2 projetos ativos.<br />
+                              Pause 1 projeto para continuar:
+                            </>
+                          )}
+                      </p>
                     </div>
 
                     {pausePolling || Boolean(supabasePausingRef) ? (
                       <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4">
                         <div className="flex items-center gap-3 text-amber-400">
                           <Loader2 className="w-5 h-5 animate-spin shrink-0" />
-                          <p className="text-sm">O projeto está sendo pausado. Aguarde alguns segundos…</p>
+                          <div className="text-sm">
+                            <div>O projeto está sendo pausado. Isso pode levar até ~3 minutos.</div>
+                            <div className="text-amber-200/80 mt-1">
+                              {pauseStartedAt ? `Tempo: ${Math.max(0, Math.round((Date.now() - pauseStartedAt) / 1000))}s` : null}
+                              {pauseAttempts ? ` • Tentativas: ${pauseAttempts}` : null}
+                              {pauseLastStatus ? ` • Status: ${pauseLastStatus}` : null}
+                            </div>
+                          </div>
                         </div>
                       </div>
                     ) : (
