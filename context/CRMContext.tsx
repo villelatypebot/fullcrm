@@ -734,12 +734,17 @@ const CRMInnerProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
       );
 
       if (!existingTask) {
+        // Buscar empresa uma única vez (antes era O(2n) por chamar find() duas vezes)
+        const companyId = contact.clientCompanyId || contact.companyId;
+        const company = companies.find(c => c.id === companyId);
+        const companyDisplay = company?.name ? ` (Empresa: ${company.name})` : '';
+
         await addActivity({
           dealId: '',
           dealTitle: 'Carteira de Clientes',
           type: 'TASK',
           title: 'Análise de Carteira: Risco de Churn',
-          description: `O cliente ${contact.name} ${companies.find(c => c.id === (contact.clientCompanyId || contact.companyId))?.name ? `(Empresa: ${companies.find(c => c.id === (contact.clientCompanyId || contact.companyId))?.name})` : ''} está inativo há mais de 30 dias.`,
+          description: `O cliente ${contact.name}${companyDisplay} está inativo há mais de 30 dias.`,
           date: new Date().toISOString(),
           user: { name: 'Sistema', avatar: '' },
           completed: false,
