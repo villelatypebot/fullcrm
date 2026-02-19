@@ -7,6 +7,7 @@ import {
   useDeleteWhatsAppInstance,
   useWhatsAppQRCode,
   useWhatsAppInstance,
+  useConfigureWebhooks,
 } from '@/lib/query/whatsapp';
 import type { WhatsAppInstance } from '@/types/whatsapp';
 import {
@@ -21,6 +22,7 @@ import {
   X,
   Check,
   Loader2,
+  Link,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -249,6 +251,8 @@ function InstanceCard({
   onConnect: (id: string) => void;
   onDelete: (id: string) => void;
 }) {
+  const configureWebhooksMutation = useConfigureWebhooks();
+
   const statusConfig = {
     connected: { color: 'text-green-500 bg-green-500/10', icon: Wifi, label: 'Conectado' },
     disconnected: { color: 'text-slate-400 bg-slate-100 dark:bg-white/5', icon: WifiOff, label: 'Desconectado' },
@@ -293,6 +297,13 @@ function InstanceCard({
         )}
       </div>
 
+      {configureWebhooksMutation.isSuccess && (
+        <p className="text-xs text-green-500 mb-2">Webhooks configurados!</p>
+      )}
+      {configureWebhooksMutation.isError && (
+        <p className="text-xs text-red-500 mb-2">{configureWebhooksMutation.error.message}</p>
+      )}
+
       <div className="flex gap-2">
         {instance.status !== 'connected' && (
           <button
@@ -312,6 +323,18 @@ function InstanceCard({
             Reconectar
           </button>
         )}
+        <button
+          onClick={() => configureWebhooksMutation.mutate(instance.id)}
+          disabled={configureWebhooksMutation.isPending}
+          title="Configurar webhooks (necessário para receber mensagens)"
+          className="p-2 rounded-xl border border-slate-200 dark:border-white/10 text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-500/10 transition-colors disabled:opacity-50"
+        >
+          {configureWebhooksMutation.isPending ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Link className="w-4 h-4" />
+          )}
+        </button>
         <button
           onClick={() => onDelete(instance.id)}
           className="p-2 rounded-xl border border-red-200 dark:border-red-500/20 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"

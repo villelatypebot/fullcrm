@@ -5,6 +5,7 @@ import { ConversationList } from './components/ConversationList';
 import { MessageThread } from './components/MessageThread';
 import { WhatsAppSetup } from './components/WhatsAppSetup';
 import { WhatsAppAISettings } from './components/WhatsAppAISettings';
+import { IntelligencePanel } from './components/IntelligencePanel';
 import { useWhatsAppInstances } from '@/lib/query/whatsapp';
 import type { WhatsAppConversation } from '@/types/whatsapp';
 import {
@@ -13,6 +14,7 @@ import {
   Bot,
   Loader2,
   ArrowLeft,
+  Brain,
 } from 'lucide-react';
 
 type Tab = 'chat' | 'settings' | 'ai';
@@ -21,6 +23,7 @@ export function WhatsAppPage() {
   const { data: instances, isLoading, error } = useWhatsAppInstances();
   const [tab, setTab] = useState<Tab>('chat');
   const [selectedConversation, setSelectedConversation] = useState<WhatsAppConversation | null>(null);
+  const [showIntelligence, setShowIntelligence] = useState(true);
 
   const hasInstances = instances && instances.length > 0;
   const hasConnected = instances?.some((i) => i.status === 'connected');
@@ -144,7 +147,11 @@ export function WhatsAppPage() {
                     Voltar
                   </button>
                 </div>
-                <MessageThread conversation={selectedConversation} />
+                <MessageThread
+                  conversation={selectedConversation}
+                  onToggleIntelligence={() => setShowIntelligence(!showIntelligence)}
+                  showIntelligenceActive={showIntelligence}
+                />
               </>
             ) : (
               <div className="flex-1 flex items-center justify-center">
@@ -167,6 +174,13 @@ export function WhatsAppPage() {
               </div>
             )}
           </div>
+
+          {/* Intelligence Panel (desktop only) */}
+          {selectedConversation && showIntelligence && (
+            <div className="hidden xl:flex w-72 shrink-0">
+              <IntelligencePanel conversation={selectedConversation} />
+            </div>
+          )}
         </div>
       )}
     </div>

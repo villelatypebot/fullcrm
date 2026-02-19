@@ -16,6 +16,7 @@ import {
   MessageSquare,
   UserPlus,
   Zap,
+  Brain,
 } from 'lucide-react';
 
 export function WhatsAppAISettings() {
@@ -51,6 +52,15 @@ export function WhatsAppAISettings() {
     outside_hours_message: '',
     auto_create_contact: true,
     auto_create_deal: false,
+    // Intelligence features
+    memory_enabled: true,
+    follow_up_enabled: true,
+    auto_label_enabled: true,
+    lead_scoring_enabled: true,
+    summary_enabled: true,
+    smart_pause_enabled: true,
+    follow_up_default_delay_minutes: 30,
+    follow_up_max_per_conversation: 3,
   });
 
   // Sync form from config
@@ -73,6 +83,15 @@ export function WhatsAppAISettings() {
         outside_hours_message: config.outside_hours_message ?? '',
         auto_create_contact: config.auto_create_contact ?? true,
         auto_create_deal: config.auto_create_deal ?? false,
+        // Intelligence features
+        memory_enabled: config.memory_enabled ?? true,
+        follow_up_enabled: config.follow_up_enabled ?? true,
+        auto_label_enabled: config.auto_label_enabled ?? true,
+        lead_scoring_enabled: config.lead_scoring_enabled ?? true,
+        summary_enabled: config.summary_enabled ?? true,
+        smart_pause_enabled: config.smart_pause_enabled ?? true,
+        follow_up_default_delay_minutes: config.follow_up_default_delay_minutes ?? 30,
+        follow_up_max_per_conversation: config.follow_up_max_per_conversation ?? 3,
       });
     }
   }, [config]);
@@ -392,6 +411,126 @@ export function WhatsAppAISettings() {
               <span className="text-sm text-slate-700 dark:text-slate-300">
                 Criar negócio automaticamente para novos contatos
               </span>
+            </label>
+          </section>
+
+          {/* Intelligence Features */}
+          <section className="space-y-4">
+            <h4 className="flex items-center gap-2 font-medium text-slate-900 dark:text-white">
+              <Brain className="w-4 h-4" />
+              Inteligência Autônoma
+            </h4>
+            <p className="text-xs text-slate-500 -mt-2">
+              Funcionalidades avançadas que tornam o agente verdadeiramente autônomo.
+            </p>
+
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.memory_enabled}
+                onChange={(e) => setForm({ ...form, memory_enabled: e.target.checked })}
+                className="w-4 h-4 rounded text-violet-500"
+              />
+              <div>
+                <span className="text-sm text-slate-700 dark:text-slate-300 font-medium">Memória de chat</span>
+                <p className="text-xs text-slate-500">A I.A. lembra nomes, preferências, objeções e detalhes de cada contato</p>
+              </div>
+            </label>
+
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.follow_up_enabled}
+                onChange={(e) => setForm({ ...form, follow_up_enabled: e.target.checked })}
+                className="w-4 h-4 rounded text-violet-500"
+              />
+              <div>
+                <span className="text-sm text-slate-700 dark:text-slate-300 font-medium">Follow-ups inteligentes</span>
+                <p className="text-xs text-slate-500">&quot;Vou ver com meu esposo&quot; → 30min depois a I.A. retoma a conversa</p>
+              </div>
+            </label>
+
+            {form.follow_up_enabled && (
+              <div className="grid sm:grid-cols-2 gap-4 ml-7">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                    Delay padrão (min)
+                  </label>
+                  <input
+                    type="number"
+                    min={5}
+                    max={1440}
+                    value={form.follow_up_default_delay_minutes}
+                    onChange={(e) => setForm({ ...form, follow_up_default_delay_minutes: Number(e.target.value) || 30 })}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-dark-bg text-slate-900 dark:text-white text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                    Máx. follow-ups/conversa
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={form.follow_up_max_per_conversation}
+                    onChange={(e) => setForm({ ...form, follow_up_max_per_conversation: Number(e.target.value) || 3 })}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-dark-bg text-slate-900 dark:text-white text-sm"
+                  />
+                </div>
+              </div>
+            )}
+
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.auto_label_enabled}
+                onChange={(e) => setForm({ ...form, auto_label_enabled: e.target.checked })}
+                className="w-4 h-4 rounded text-violet-500"
+              />
+              <div>
+                <span className="text-sm text-slate-700 dark:text-slate-300 font-medium">Etiquetas automáticas</span>
+                <p className="text-xs text-slate-500">Classifica conversas automaticamente (Quente, Frio, Objeção, etc.)</p>
+              </div>
+            </label>
+
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.lead_scoring_enabled}
+                onChange={(e) => setForm({ ...form, lead_scoring_enabled: e.target.checked })}
+                className="w-4 h-4 rounded text-violet-500"
+              />
+              <div>
+                <span className="text-sm text-slate-700 dark:text-slate-300 font-medium">Lead scoring</span>
+                <p className="text-xs text-slate-500">Pontua leads de 0-100 baseado em sinais de compra e engajamento</p>
+              </div>
+            </label>
+
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.smart_pause_enabled}
+                onChange={(e) => setForm({ ...form, smart_pause_enabled: e.target.checked })}
+                className="w-4 h-4 rounded text-violet-500"
+              />
+              <div>
+                <span className="text-sm text-slate-700 dark:text-slate-300 font-medium">Pausa inteligente</span>
+                <p className="text-xs text-slate-500">Pausa automaticamente quando o cliente pede um humano ou fica insatisfeito</p>
+              </div>
+            </label>
+
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.summary_enabled}
+                onChange={(e) => setForm({ ...form, summary_enabled: e.target.checked })}
+                className="w-4 h-4 rounded text-violet-500"
+              />
+              <div>
+                <span className="text-sm text-slate-700 dark:text-slate-300 font-medium">Resumo de conversas</span>
+                <p className="text-xs text-slate-500">Gera resumos automáticos com pontos-chave e próximas ações</p>
+              </div>
             </label>
           </section>
 

@@ -139,6 +139,17 @@ export interface WhatsAppAIConfig {
   default_board_id?: string;
   default_stage_id?: string;
   default_tags: string[];
+  // Intelligence features
+  memory_enabled: boolean;
+  follow_up_enabled: boolean;
+  auto_label_enabled: boolean;
+  lead_scoring_enabled: boolean;
+  summary_enabled: boolean;
+  smart_pause_enabled: boolean;
+  follow_up_default_delay_minutes: number;
+  follow_up_max_per_conversation: number;
+  follow_up_quiet_hours_start?: string;
+  follow_up_quiet_hours_end?: string;
   created_at: string;
   updated_at: string;
 }
@@ -163,6 +174,17 @@ export interface WhatsAppAIConfigUpdate {
   default_board_id?: string | null;
   default_stage_id?: string | null;
   default_tags?: string[];
+  // Intelligence features
+  memory_enabled?: boolean;
+  follow_up_enabled?: boolean;
+  auto_label_enabled?: boolean;
+  lead_scoring_enabled?: boolean;
+  summary_enabled?: boolean;
+  smart_pause_enabled?: boolean;
+  follow_up_default_delay_minutes?: number;
+  follow_up_max_per_conversation?: number;
+  follow_up_quiet_hours_start?: string | null;
+  follow_up_quiet_hours_end?: string | null;
 }
 
 // =============================================================================
@@ -292,7 +314,20 @@ export type AILogAction =
   | 'deal_created'
   | 'stage_changed'
   | 'tag_added'
-  | 'error';
+  | 'error'
+  | 'memory_extracted'
+  | 'follow_up_scheduled'
+  | 'follow_up_sent'
+  | 'follow_up_cancelled'
+  | 'label_assigned'
+  | 'label_removed'
+  | 'lead_score_updated'
+  | 'summary_generated'
+  | 'intent_detected'
+  | 'smart_paused'
+  | 'smart_resumed'
+  | 'stage_auto_changed'
+  | 'deal_auto_updated';
 
 export interface WhatsAppAILog {
   id: string;
@@ -303,4 +338,176 @@ export interface WhatsAppAILog {
   message_id?: string;
   triggered_by?: string;
   created_at: string;
+}
+
+// =============================================================================
+// CHAT MEMORY
+// =============================================================================
+
+export type MemoryType =
+  | 'fact'
+  | 'preference'
+  | 'objection'
+  | 'family'
+  | 'timeline'
+  | 'budget'
+  | 'interest'
+  | 'personal'
+  | 'interaction';
+
+export interface ChatMemory {
+  id: string;
+  conversation_id: string;
+  organization_id: string;
+  contact_id?: string;
+  memory_type: MemoryType;
+  key: string;
+  value: string;
+  context?: string;
+  source_message_id?: string;
+  confidence: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// =============================================================================
+// SMART FOLLOW-UPS
+// =============================================================================
+
+export type FollowUpStatus = 'pending' | 'sent' | 'cancelled' | 'failed' | 'skipped';
+export type FollowUpType = 'smart' | 'scheduled' | 'reminder' | 'nurture' | 'reactivation';
+
+export interface WhatsAppFollowUp {
+  id: string;
+  conversation_id: string;
+  organization_id: string;
+  instance_id: string;
+  trigger_at: string;
+  status: FollowUpStatus;
+  follow_up_type: FollowUpType;
+  detected_intent?: string;
+  intent_confidence?: number;
+  context: Record<string, unknown>;
+  original_customer_message?: string;
+  ai_generated_message?: string;
+  custom_instructions?: string;
+  original_message_id?: string;
+  sent_message_id?: string;
+  created_by: string;
+  max_retries: number;
+  retry_count: number;
+  created_at: string;
+  updated_at: string;
+  sent_at?: string;
+}
+
+// =============================================================================
+// LABELS
+// =============================================================================
+
+export interface WhatsAppLabel {
+  id: string;
+  organization_id: string;
+  name: string;
+  color: string;
+  icon?: string;
+  description?: string;
+  auto_assign: boolean;
+  auto_assign_conditions?: Record<string, unknown>;
+  is_system: boolean;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface ConversationLabel {
+  id: string;
+  conversation_id: string;
+  label_id: string;
+  organization_id: string;
+  assigned_by: string;
+  reason?: string;
+  assigned_at: string;
+  // Joined
+  label?: WhatsAppLabel;
+}
+
+// =============================================================================
+// LEAD SCORING
+// =============================================================================
+
+export type LeadTemperature = 'cold' | 'warm' | 'hot' | 'on_fire';
+export type BuyingStage =
+  | 'awareness'
+  | 'interest'
+  | 'consideration'
+  | 'decision'
+  | 'negotiation'
+  | 'closed_won'
+  | 'closed_lost';
+
+export interface LeadScore {
+  id: string;
+  conversation_id: string;
+  organization_id: string;
+  contact_id?: string;
+  score: number;
+  temperature: LeadTemperature;
+  factors: Record<string, number>;
+  buying_stage: BuyingStage;
+  score_history: Array<{ score: number; timestamp: string; reason: string }>;
+  last_calculated_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// =============================================================================
+// CONVERSATION SUMMARIES
+// =============================================================================
+
+export type CustomerSentiment = 'very_positive' | 'positive' | 'neutral' | 'negative' | 'very_negative';
+
+export interface ConversationSummary {
+  id: string;
+  conversation_id: string;
+  organization_id: string;
+  summary: string;
+  key_points: string[];
+  next_actions: string[];
+  customer_sentiment?: CustomerSentiment;
+  trigger_reason: string;
+  message_range_start?: string;
+  message_range_end?: string;
+  created_at: string;
+}
+
+// =============================================================================
+// INTENT DETECTION (used by AI agent internally)
+// =============================================================================
+
+export interface DetectedIntent {
+  intent: string;
+  confidence: number;
+  follow_up_delay_minutes?: number;
+  customer_message: string;
+  context: Record<string, unknown>;
+}
+
+export interface ExtractedMemory {
+  memory_type: MemoryType;
+  key: string;
+  value: string;
+  context?: string;
+  confidence: number;
+}
+
+export interface ConversationIntelligence {
+  intents: DetectedIntent[];
+  memories: ExtractedMemory[];
+  sentiment: CustomerSentiment;
+  lead_score_delta: number;
+  buying_stage?: BuyingStage;
+  suggested_labels: string[];
+  summary?: string;
+  should_pause: boolean;
+  pause_reason?: string;
 }
