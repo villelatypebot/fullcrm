@@ -40,13 +40,16 @@ export async function POST(_request: Request, { params }: Params) {
     return NextResponse.json({ error: 'Instance not found' }, { status: 404 });
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
-  if (!appUrl) {
+  const rawAppUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
+  if (!rawAppUrl) {
     return NextResponse.json(
       { error: 'NEXT_PUBLIC_APP_URL não configurada. Adicione nas variáveis de ambiente do Vercel.' },
       { status: 500 },
     );
   }
+
+  // Strip trailing slash to prevent double-slash in webhook URL
+  const appUrl = rawAppUrl.replace(/\/+$/, '');
 
   const creds: zapi.ZApiCredentials = {
     instanceId: instance.instance_id,

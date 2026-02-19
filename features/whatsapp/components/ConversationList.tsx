@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useWhatsAppConversations } from '@/lib/query/whatsapp';
+import { useWhatsAppConversations, useSyncChats } from '@/lib/query/whatsapp';
 import type { WhatsAppConversation } from '@/types/whatsapp';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -11,6 +11,7 @@ import {
   User,
   MessageSquare,
   Loader2,
+  RefreshCw,
 } from 'lucide-react';
 
 interface ConversationListProps {
@@ -25,15 +26,33 @@ export function ConversationList({ selectedId, onSelect, instanceId }: Conversat
     instanceId,
     search: search || undefined,
   });
+  const syncChats = useSyncChats();
+
+  const handleSync = () => {
+    if (!instanceId || syncChats.isPending) return;
+    syncChats.mutate(instanceId);
+  };
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-dark-card border-r border-slate-200 dark:border-white/10">
       {/* Header */}
       <div className="p-4 border-b border-slate-200 dark:border-white/10">
-        <h2 className="font-semibold text-slate-900 dark:text-white mb-3 flex items-center gap-2">
-          <MessageSquare className="w-5 h-5 text-green-500" />
-          Conversas
-        </h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+            <MessageSquare className="w-5 h-5 text-green-500" />
+            Conversas
+          </h2>
+          {instanceId && (
+            <button
+              onClick={handleSync}
+              disabled={syncChats.isPending}
+              title="Sincronizar conversas do WhatsApp"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-primary-500 hover:bg-primary-500/10 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${syncChats.isPending ? 'animate-spin' : ''}`} />
+            </button>
+          )}
+        </div>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
@@ -44,6 +63,12 @@ export function ConversationList({ selectedId, onSelect, instanceId }: Conversat
             className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-dark-bg text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
           />
         </div>
+        {syncChats.isSuccess && (
+          <p className="text-xs text-green-500 mt-2">Conversas sincronizadas!</p>
+        )}
+        {syncChats.isError && (
+          <p className="text-xs text-red-500 mt-2">Erro ao sincronizar. Tente novamente.</p>
+        )}
       </div>
 
       {/* List */}
@@ -58,6 +83,15 @@ export function ConversationList({ selectedId, onSelect, instanceId }: Conversat
             <p className="text-sm text-slate-500">
               {search ? 'Nenhuma conversa encontrada.' : 'Nenhuma conversa ainda.'}
             </p>
+            {!search && instanceId && (
+              <button
+                onClick={handleSync}
+                disabled={syncChats.isPending}
+                className="mt-3 px-4 py-2 text-xs font-medium text-primary-600 bg-primary-500/10 rounded-lg hover:bg-primary-500/20 transition-colors disabled:opacity-50"
+              >
+                {syncChats.isPending ? 'Sincronizando...' : 'Sincronizar do WhatsApp'}
+              </button>
+            )}
           </div>
         ) : (
           conversations.map((conv) => (

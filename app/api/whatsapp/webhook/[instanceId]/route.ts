@@ -25,48 +25,52 @@ type Params = { params: Promise<{ instanceId: string }> };
  */
 export async function POST(request: Request, { params }: Params) {
   const { instanceId } = await params;
-  const url = new URL(request.url);
-  const pathParts = url.pathname.split('/');
-  // The path pattern is: /api/whatsapp/webhook/{instanceId}
-  // But we also need the sub-path...
-  // Actually since this is the catch-all for [instanceId], we need a different approach.
-  // Z-API sends different payloads to different webhook URLs.
-  // We'll detect the type from the payload itself.
 
   const supabase = createStaticAdminClient();
 
   // Get the instance from our DB
-  const { data: instance } = await supabase
+  const { data: instance, error: instanceError } = await supabase
     .from('whatsapp_instances')
     .select('*')
     .eq('id', instanceId)
     .single();
 
   if (!instance) {
+    console.error('[whatsapp-webhook] Instance not found:', instanceId, instanceError?.message);
     return NextResponse.json({ error: 'Instance not found' }, { status: 404 });
   }
 
   const body = await request.json().catch(() => null);
   if (!body) {
+    console.error('[whatsapp-webhook] Invalid JSON body for instance:', instanceId);
     return NextResponse.json({ error: 'Invalid body' }, { status: 400 });
   }
 
   try {
     // Detect webhook type from payload
+    // 1. Connection events
     if ('connected' in body || body.type === 'ConnectedCallback' || body.type === 'DisconnectedCallback') {
+      console.log('[whatsapp-webhook] Connection event:', instanceId, body.type || 'connection');
       await handleConnectionEvent(supabase, instance, body);
-    } else if (body.status && !body.text && !body.image && !body.audio && !body.video && !body.document && !body.sticker && !body.location) {
-      // Message status update (has status but no content fields)
-      if (body.messageId && (body.status === 'SENT' || body.status === 'RECEIVED' || body.status === 'READ' || body.status === 'PLAYED' || body.status === 'DELETED')) {
-        await handleMessageStatus(supabase, body as ZApiMessageStatus);
-      }
-    } else if (body.phone && (body.text || body.image || body.audio || body.video || body.document || body.sticker || body.location || body.reaction)) {
+    }
+    // 2. Incoming messages (check BEFORE status to avoid misclassifying incoming
+    //    messages that carry status="RECEIVED" alongside content fields)
+    else if (body.phone && (body.text || body.image || body.audio || body.video || body.document || body.sticker || body.location || body.reaction)) {
+      console.log('[whatsapp-webhook] Incoming message from:', body.phone, 'fromMe:', body.fromMe);
       await handleIncomingMessage(supabase, instance, body as ZApiIncomingMessage);
+    }
+    // 3. Message status update (has status + messageId but no content fields)
+    else if (body.messageId && body.status && ['SENT', 'RECEIVED', 'READ', 'PLAYED', 'DELETED'].includes(body.status)) {
+      await handleMessageStatus(supabase, body as ZApiMessageStatus);
+    }
+    // 4. Unknown payload — log so we can debug
+    else {
+      console.warn('[whatsapp-webhook] Unrecognized payload:', instanceId, 'type:', body.type, 'keys:', Object.keys(body).join(','));
     }
 
     return NextResponse.json({ ok: true });
   } catch (err) {
-    console.error('[whatsapp-webhook] Error:', err);
+    console.error('[whatsapp-webhook] Error processing webhook:', instanceId, err);
     return NextResponse.json({ ok: true }); // Return 200 to prevent Z-API retries
   }
 }
@@ -189,14 +193,16 @@ async function handleConnectionEvent(
 
   // Re-configure webhooks on connection to ensure they point to the current app URL
   if (isConnected) {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
-    if (appUrl) {
+    const rawAppUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
+    if (rawAppUrl) {
+      const appUrl = rawAppUrl.replace(/\/+$/, '');
       const creds: zapi.ZApiCredentials = {
         instanceId: instance.instance_id as string,
         token: instance.instance_token as string,
         clientToken: (instance.client_token as string) ?? undefined,
       };
       const baseWebhookUrl = `${appUrl}/api/whatsapp/webhook/${instance.id as string}`;
+      console.log('[whatsapp-webhook] Configuring webhooks to:', baseWebhookUrl);
       zapi.configureAllWebhooks(creds, baseWebhookUrl).catch((err) => {
         console.error('[whatsapp-webhook] Failed to re-configure webhooks on connect:', err);
       });

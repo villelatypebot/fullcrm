@@ -105,6 +105,20 @@ export function useConfigureWebhooks() {
   });
 }
 
+export function useSyncChats() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (instanceId: string) =>
+      fetchJson<{ synced: number; total: number }>(
+        `/api/whatsapp/instances/${instanceId}/sync-chats`,
+        { method: 'POST' },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.whatsappConversations.all });
+    },
+  });
+}
+
 export function useWhatsAppQRCode(instanceId: string | undefined) {
   return useQuery({
     queryKey: [...queryKeys.whatsappInstances.detail(instanceId ?? ''), 'qrcode'],
