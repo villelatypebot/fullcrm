@@ -216,3 +216,78 @@ export function useUpdateWhatsAppAIConfig() {
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// INTELLIGENCE (combined endpoint)
+// ---------------------------------------------------------------------------
+
+import type {
+  ChatMemory,
+  WhatsAppFollowUp,
+  ConversationLabel,
+  LeadScore,
+  ConversationSummary,
+  WhatsAppLabel,
+} from '@/types/whatsapp';
+
+interface ConversationIntelligenceData {
+  memories: ChatMemory[];
+  leadScore: LeadScore | null;
+  labels: ConversationLabel[];
+  followUps: WhatsAppFollowUp[];
+  summary: ConversationSummary | null;
+}
+
+export function useConversationIntelligence(conversationId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.whatsappIntelligence.byConversation(conversationId ?? ''),
+    queryFn: () => fetchJson<ConversationIntelligenceData>(`/api/whatsapp/conversations/${conversationId}/intelligence`),
+    enabled: !!conversationId,
+    staleTime: 30 * 1000,
+    refetchInterval: 15_000,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// LABELS
+// ---------------------------------------------------------------------------
+
+export function useWhatsAppLabels() {
+  return useQuery({
+    queryKey: queryKeys.whatsappLabels.all,
+    queryFn: () => fetchJson<WhatsAppLabel[]>('/api/whatsapp/labels'),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useAssignLabel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ conversationId, labelId }: { conversationId: string; labelId: string }) =>
+      fetchJson<ConversationLabel>(`/api/whatsapp/conversations/${conversationId}/labels`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ labelId }),
+      }),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({
+        queryKey: queryKeys.whatsappIntelligence.byConversation(vars.conversationId),
+      });
+    },
+  });
+}
+
+export function useRemoveLabel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ conversationId, labelId }: { conversationId: string; labelId: string }) =>
+      fetchJson<void>(`/api/whatsapp/conversations/${conversationId}/labels?labelId=${labelId}`, {
+        method: 'DELETE',
+      }),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({
+        queryKey: queryKeys.whatsappIntelligence.byConversation(vars.conversationId),
+      });
+    },
+  });
+}

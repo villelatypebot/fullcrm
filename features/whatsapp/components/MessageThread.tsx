@@ -25,13 +25,16 @@ import {
   Loader2,
   Phone,
   MoreVertical,
+  Brain,
 } from 'lucide-react';
 
 interface MessageThreadProps {
   conversation: WhatsAppConversation;
+  onToggleIntelligence?: () => void;
+  showIntelligenceActive?: boolean;
 }
 
-export function MessageThread({ conversation }: MessageThreadProps) {
+export function MessageThread({ conversation, onToggleIntelligence, showIntelligenceActive }: MessageThreadProps) {
   const { data: messages, isLoading } = useWhatsAppMessages(conversation.id);
   const sendMutation = useSendWhatsAppMessage();
   const aiControl = useWhatsAppAIControl();
@@ -96,6 +99,22 @@ export function MessageThread({ conversation }: MessageThreadProps) {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Intelligence Panel toggle */}
+          {onToggleIntelligence && (
+            <button
+              onClick={onToggleIntelligence}
+              className={`hidden xl:flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition-colors ${
+                showIntelligenceActive
+                  ? 'bg-violet-500/10 text-violet-500'
+                  : 'bg-slate-100 dark:bg-white/5 text-slate-500 hover:bg-slate-200'
+              }`}
+              title="Painel de Inteligência"
+            >
+              <Brain className="w-3 h-3" />
+              I.Q.
+            </button>
+          )}
+
           {/* AI status badge */}
           {conversation.ai_active ? (
             <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-violet-500/10 text-violet-500 text-xs font-medium">

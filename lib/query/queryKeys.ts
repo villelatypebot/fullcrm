@@ -55,6 +55,11 @@ export const queryKeys = {
             [...base.all, 'conversation', conversationId] as const,
     })),
     whatsappAIConfig: createQueryKeys('whatsappAIConfig'),
+    whatsappLabels: createQueryKeys('whatsappLabels'),
+    whatsappIntelligence: createExtendedQueryKeys('whatsappIntelligence', base => ({
+        byConversation: (conversationId: string) =>
+            [...base.all, 'conversation', conversationId] as const,
+    })),
 };
 
 /**
