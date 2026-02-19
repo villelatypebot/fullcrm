@@ -30,7 +30,7 @@ export interface InstallState {
   error?: string;
 }
 
-const STORAGE_KEY = 'nossocrm_install_state';
+const STORAGE_KEY = 'fullhouse_crm_install_state';
 const STATE_VERSION = 1;
 const MAX_RETRY_COUNT = 3;
 

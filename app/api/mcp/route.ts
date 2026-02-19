@@ -75,7 +75,7 @@ async function resolveApiKeyOwnerUserId(opts: { apiKeyId: string; organizationId
 export async function GET() {
   return NextResponse.json({
     ok: true,
-    name: 'crmia-next-mcp',
+    name: 'fullhouse-crm-mcp',
     endpoint: '/api/mcp',
     auth: 'Authorization: Bearer <API_KEY> (or X-Api-Key header)',
     protocolVersion: '2025-11-25',
@@ -113,7 +113,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       jsonRpcResult(body.id, {
         protocolVersion: '2025-11-25',
-        serverInfo: { name: 'crmia-next-mcp', version: '0.1.0' },
+        serverInfo: { name: 'fullhouse-crm-mcp', version: '0.1.0' },
         capabilities: { tools: { listChanged: false } },
       })
     );

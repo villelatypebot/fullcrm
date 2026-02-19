@@ -43,6 +43,18 @@ export const queryKeys = {
         funnel: ['dashboard', 'funnel'] as const,
         timeline: ['dashboard', 'timeline'] as const,
     },
+
+    // WhatsApp
+    whatsappInstances: createQueryKeys('whatsappInstances'),
+    whatsappConversations: createExtendedQueryKeys('whatsappConversations', base => ({
+        byInstance: (instanceId: string) =>
+            [...base.all, 'instance', instanceId] as const,
+    })),
+    whatsappMessages: createExtendedQueryKeys('whatsappMessages', base => ({
+        byConversation: (conversationId: string) =>
+            [...base.all, 'conversation', conversationId] as const,
+    })),
+    whatsappAIConfig: createQueryKeys('whatsappAIConfig'),
 };
 
 /**
