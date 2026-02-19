@@ -27,8 +27,20 @@ export async function GET() {
     return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
   }
 
-  const instances = await getInstances(supabase, profile.organization_id);
-  return NextResponse.json({ data: instances });
+  try {
+    const instances = await getInstances(supabase, profile.organization_id);
+    return NextResponse.json({ data: instances });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    const isTableMissing = msg.includes('whatsapp_instances') || msg.includes('relation') || msg.includes('42P01');
+    if (isTableMissing) {
+      return NextResponse.json(
+        { error: 'Tabelas do WhatsApp não encontradas. Execute a migration no Supabase.' },
+        { status: 503 },
+      );
+    }
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 }
 
 /** Create a new WhatsApp instance */
