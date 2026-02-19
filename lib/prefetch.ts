@@ -10,6 +10,7 @@ const routeImports = {
   inbox: () => import('@/features/inbox/InboxPage'),
   boards: () => import('@/features/boards/BoardsPage'),
   contacts: () => import('@/features/contacts/ContactsPage'),
+  whatsapp: () => import('@/features/whatsapp/WhatsAppPage'),
   settings: () => import('@/features/settings/SettingsPage'),
   activities: () => import('@/features/activities/ActivitiesPage'),
   reports: () => import('@/features/reports/ReportsPage'),

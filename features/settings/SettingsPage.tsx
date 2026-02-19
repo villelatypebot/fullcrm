@@ -60,6 +60,7 @@ const GeneralSettings: React.FC<GeneralSettingsProps> = ({ hash, isAdmin }) => {
             <option value="/contacts">Contatos</option>
             <option value="/activities">Atividades</option>
             <option value="/reports">Relatórios</option>
+            <option value="/whatsapp">WhatsApp</option>
           </select>
         </div>
       </div>
