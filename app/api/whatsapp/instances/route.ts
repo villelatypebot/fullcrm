@@ -93,5 +93,20 @@ export async function POST(request: Request) {
     name,
   });
 
+  // Configure Z-API webhooks to point to our app
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
+  if (appUrl) {
+    const baseWebhookUrl = `${appUrl}/api/whatsapp/webhook/${instance.id}`;
+    try {
+      await zapi.configureAllWebhooks(creds, baseWebhookUrl);
+      console.log(`[whatsapp] Webhooks configured for instance ${instance.id}: ${baseWebhookUrl}`);
+    } catch (webhookErr) {
+      console.error('[whatsapp] Failed to configure webhooks:', webhookErr);
+      // Don't fail the instance creation – user can retry via the configure-webhooks endpoint
+    }
+  } else {
+    console.warn('[whatsapp] NEXT_PUBLIC_APP_URL not set – webhooks not configured. Set it in your environment variables.');
+  }
+
   return NextResponse.json({ data: instance }, { status: 201 });
 }

@@ -95,6 +95,16 @@ export function useDeleteWhatsAppInstance() {
   });
 }
 
+export function useConfigureWebhooks() {
+  return useMutation({
+    mutationFn: (instanceId: string) =>
+      fetchJson<{ ok: boolean; webhookUrl: string; message: string }>(
+        `/api/whatsapp/instances/${instanceId}/configure-webhooks`,
+        { method: 'POST' },
+      ),
+  });
+}
+
 export function useWhatsAppQRCode(instanceId: string | undefined) {
   return useQuery({
     queryKey: [...queryKeys.whatsappInstances.detail(instanceId ?? ''), 'qrcode'],

@@ -6,6 +6,7 @@ import {
   updateMessageStatus,
   updateInstance,
 } from '@/lib/supabase/whatsapp';
+import * as zapi from '@/lib/zapi/client';
 import type { ZApiIncomingMessage, ZApiMessageStatus, ZApiConnectionEvent } from '@/types/whatsapp';
 import { processIncomingMessage } from '@/lib/zapi/aiAgent';
 
@@ -185,6 +186,22 @@ async function handleConnectionEvent(
     phone: payload.phone ?? (instance.phone as string),
     ...(isConnected ? { connected_at: new Date().toISOString() } : {}),
   } as Parameters<typeof updateInstance>[2]);
+
+  // Re-configure webhooks on connection to ensure they point to the current app URL
+  if (isConnected) {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
+    if (appUrl) {
+      const creds: zapi.ZApiCredentials = {
+        instanceId: instance.instance_id as string,
+        token: instance.instance_token as string,
+        clientToken: (instance.client_token as string) ?? undefined,
+      };
+      const baseWebhookUrl = `${appUrl}/api/whatsapp/webhook/${instance.id as string}`;
+      zapi.configureAllWebhooks(creds, baseWebhookUrl).catch((err) => {
+        console.error('[whatsapp-webhook] Failed to re-configure webhooks on connect:', err);
+      });
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
