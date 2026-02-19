@@ -196,7 +196,7 @@ async function generateAIResponse(
   const result = await generateText({
     model: modelInstance,
     messages,
-    maxTokens: 500,
+    maxOutputTokens: 500,
   });
 
   return result.text || config.transfer_message || 'Desculpe, não consegui processar sua mensagem.';
