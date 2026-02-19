@@ -36,6 +36,7 @@ export function useWhatsAppInstances() {
     queryKey: queryKeys.whatsappInstances.all,
     queryFn: () => fetchJson<WhatsAppInstance[]>('/api/whatsapp/instances'),
     staleTime: 2 * 60 * 1000,
+    retry: 1,
   });
 }
 
