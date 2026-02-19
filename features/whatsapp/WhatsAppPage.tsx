@@ -18,7 +18,7 @@ import {
 type Tab = 'chat' | 'settings' | 'ai';
 
 export function WhatsAppPage() {
-  const { data: instances, isLoading } = useWhatsAppInstances();
+  const { data: instances, isLoading, error } = useWhatsAppInstances();
   const [tab, setTab] = useState<Tab>('chat');
   const [selectedConversation, setSelectedConversation] = useState<WhatsAppConversation | null>(null);
 
@@ -29,6 +29,36 @@ export function WhatsAppPage() {
     return (
       <div className="flex items-center justify-center h-full">
         <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+      </div>
+    );
+  }
+
+  if (error) {
+    const isTableMissing =
+      error.message?.includes('whatsapp_instances') ||
+      error.message?.includes('relation') ||
+      error.message?.includes('42P01');
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center max-w-md px-6">
+          <div className="w-16 h-16 rounded-2xl bg-red-500/10 flex items-center justify-center mx-auto mb-4">
+            <MessageSquare className="w-8 h-8 text-red-500" />
+          </div>
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">
+            {isTableMissing ? 'Configuração pendente' : 'Erro ao carregar'}
+          </h2>
+          <p className="text-sm text-slate-500 mb-4">
+            {isTableMissing
+              ? 'As tabelas do WhatsApp ainda não foram criadas no banco de dados. Execute a migration do Supabase para habilitar esse módulo.'
+              : `Não foi possível carregar as instâncias do WhatsApp: ${error.message}`}
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 text-sm font-medium text-white bg-primary-500 rounded-lg hover:bg-primary-600 transition-colors"
+          >
+            Tentar novamente
+          </button>
+        </div>
       </div>
     );
   }
