@@ -69,6 +69,14 @@ export async function POST(request: Request, { params }: Params) {
     whatsapp_timestamp: new Date().toISOString(),
   } as Parameters<typeof insertMessage>[1]);
 
+  // Update conversation metadata so the list reflects the sent message
+  await updateConversation(supabase, id, {
+    last_message_text: text.slice(0, 255),
+    last_message_at: new Date().toISOString(),
+    last_message_from_me: true,
+    unread_count: 0, // Reset unread when user sends a message
+  } as Parameters<typeof updateConversation>[2]);
+
   // If AI was active, pause it (human took over)
   if (conversation.ai_active) {
     await updateConversation(supabase, id, {

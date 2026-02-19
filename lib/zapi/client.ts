@@ -215,7 +215,7 @@ export async function configureAllWebhooks(
 }
 
 // ---------------------------------------------------------------------------
-// Chats
+// Chats & Message History
 // ---------------------------------------------------------------------------
 
 export interface ZApiChat {
@@ -228,6 +228,32 @@ export interface ZApiChat {
 
 export function getChats(creds: ZApiCredentials): Promise<ZApiChat[]> {
   return zapiRequest<ZApiChat[]>(creds, '/chats');
+}
+
+export interface ZApiChatMessage {
+  messageId: string;
+  phone: string;
+  fromMe: boolean;
+  momment: number;
+  status: string;
+  chatName?: string;
+  senderName?: string;
+  senderPhoto?: string;
+  text?: { message: string };
+  image?: { imageUrl: string; caption?: string; mimeType: string };
+  video?: { videoUrl: string; caption?: string; mimeType: string };
+  audio?: { audioUrl: string; mimeType: string };
+  document?: { documentUrl: string; mimeType: string; title?: string; fileName?: string };
+  sticker?: { stickerUrl: string; mimeType: string };
+  location?: { latitude: number; longitude: number };
+  reaction?: { value: string };
+  isGroup?: boolean;
+  type?: string;
+}
+
+/** Fetch message history for a specific chat from Z-API. */
+export function getChatMessages(creds: ZApiCredentials, phone: string): Promise<ZApiChatMessage[]> {
+  return zapiRequest<ZApiChatMessage[]>(creds, `/chat-messages/${phone}`);
 }
 
 // ---------------------------------------------------------------------------

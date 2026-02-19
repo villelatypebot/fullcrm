@@ -5,6 +5,7 @@ import {
   insertMessage,
   updateMessageStatus,
   updateInstance,
+  updateConversation,
 } from '@/lib/supabase/whatsapp';
 import * as zapi from '@/lib/zapi/client';
 import type { ZApiIncomingMessage, ZApiMessageStatus, ZApiConnectionEvent } from '@/types/whatsapp';
@@ -131,6 +132,16 @@ async function handleIncomingMessage(
     status: 'received',
     whatsapp_timestamp: payload.momment ? new Date(payload.momment).toISOString() : new Date().toISOString(),
   } as Parameters<typeof insertMessage>[1]);
+
+  // Update conversation metadata so the list reflects the new message
+  const previewText = textBody || mediaCaption || (messageType !== 'text' ? `[${messageType}]` : '');
+  await updateConversation(supabase, conversation.id, {
+    last_message_text: previewText.slice(0, 255),
+    last_message_at: payload.momment ? new Date(payload.momment).toISOString() : new Date().toISOString(),
+    last_message_from_me: false,
+    unread_count: (conversation.unread_count ?? 0) + 1,
+    status: 'open',
+  } as Parameters<typeof updateConversation>[2]);
 
   // Check if AI agent should process this message
   const aiEnabled = instance.ai_enabled as boolean;
