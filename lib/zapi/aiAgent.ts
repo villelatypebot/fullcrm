@@ -711,6 +711,13 @@ async function sendAIReply(
       whatsapp_timestamp: new Date().toISOString(),
     } as Parameters<typeof insertMessage>[1]);
 
+    // Update conversation metadata so the list reflects the AI reply
+    await updateConversation(supabase, conversation.id, {
+      last_message_text: text.slice(0, 255),
+      last_message_at: new Date().toISOString(),
+      last_message_from_me: true,
+    } as Parameters<typeof updateConversation>[2]);
+
     return msg;
   } catch {
     return null;
