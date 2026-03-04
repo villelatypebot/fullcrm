@@ -112,11 +112,11 @@ export async function GET() {
       );
     }
 
-    // ── 7. Redirect to dashboard ────────────────────────────────────────
+    // ── 7. Redirect to dashboard (use same origin to preserve cookies) ─
     const baseUrl =
-      process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL}`
-        : 'https://nossocrm-five.vercel.app';
+      process.env.NEXT_PUBLIC_APP_URL ||
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) ||
+      'https://fullcrm-five.vercel.app';
 
     return NextResponse.redirect(new URL('/dashboard', baseUrl));
   } catch (err: unknown) {

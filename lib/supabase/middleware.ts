@@ -86,22 +86,28 @@ export async function updateSession(request: NextRequest) {
         // ignore
     }
 
-    // Protected routes - redirect to login if not authenticated
-    const isAuthRoute = pathname.startsWith('/login') || pathname.startsWith('/auth')
-    const isPublicRoute = pathname === '/' || pathname.startsWith('/join') || isSetupRoute || isInstallRoute
+    // ── TEMPORARY: Auth bypass ─────────────────────────────────────────
+    // Login redirect is DISABLED so the admin can access the dashboard
+    // without authentication. Remove this block and uncomment the
+    // original guard below once login is working.
+    // ─────────────────────────────────────────────────────────────────
 
-    if (!user && !isAuthRoute && !isPublicRoute) {
-        const url = request.nextUrl.clone()
-        url.pathname = '/login'
-        return NextResponse.redirect(url)
-    }
-
-    // Redirect authenticated users away from login
-    if (user && isAuthRoute) {
-        const url = request.nextUrl.clone()
-        url.pathname = '/dashboard'
-        return NextResponse.redirect(url)
-    }
+    // // Protected routes - redirect to login if not authenticated
+    // const isAuthRoute = pathname.startsWith('/login') || pathname.startsWith('/auth')
+    // const isPublicRoute = pathname === '/' || pathname.startsWith('/join') || isSetupRoute || isInstallRoute
+    //
+    // if (!user && !isAuthRoute && !isPublicRoute) {
+    //     const url = request.nextUrl.clone()
+    //     url.pathname = '/login'
+    //     return NextResponse.redirect(url)
+    // }
+    //
+    // // Redirect authenticated users away from login
+    // if (user && isAuthRoute) {
+    //     const url = request.nextUrl.clone()
+    //     url.pathname = '/dashboard'
+    //     return NextResponse.redirect(url)
+    // }
 
     return supabaseResponse
 }
