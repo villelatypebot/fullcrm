@@ -68,8 +68,8 @@ export async function POST(_request: Request, { params }: Params) {
     for (const chat of chats) {
       const chatObj = chat as Record<string, unknown>;
 
-      // Extract JID from the chat object
-      const jid = (chatObj.id as string) || '';
+      // Extract JID from the chat object (remoteJid, not id which is internal DB id)
+      const jid = (chatObj.remoteJid as string) || (chatObj.id as string) || '';
 
       // Skip groups (group JIDs end with @g.us)
       if (jid.endsWith('@g.us')) continue;
