@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { createStaticAdminClient } from '@/lib/supabase/server';
+import { createClient, createStaticAdminClient } from '@/lib/supabase/server';
 import { getEvolutionCredentials } from '@/lib/evolution/helpers';
 import * as evolution from '@/lib/evolution/client';
 
 type Params = { params: Promise<{ id: string }> };
+
+// TEMPORARY: fallback org ID when auth is bypassed
+const FALLBACK_ORG_ID = '828ac44c-36a6-4be9-b0cb-417c4314ab8b';
 
 /**
  * POST /api/whatsapp/instances/[id]/sync-chats
@@ -18,31 +20,38 @@ export async function POST(_request: Request, { params }: Params) {
   const supabase = await createClient();
 
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // TEMPORARY: bypass auth
+  const queryClient = user ? supabase : createStaticAdminClient();
+  let orgId: string;
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('organization_id')
-    .eq('id', user.id)
-    .single();
+  if (!user) {
+    orgId = FALLBACK_ORG_ID;
+  } else {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('organization_id')
+      .eq('id', user.id)
+      .single();
 
-  if (!profile?.organization_id) {
-    return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
+    if (!profile?.organization_id) {
+      return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
+    }
+    orgId = profile.organization_id;
   }
 
   // Get the instance
-  const { data: instance } = await supabase
+  const { data: instance } = await queryClient
     .from('whatsapp_instances')
     .select('*')
     .eq('id', id)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .single();
 
   if (!instance) {
     return NextResponse.json({ error: 'Instance not found' }, { status: 404 });
   }
 
-  const creds = await getEvolutionCredentials(supabase, instance);
+  const creds = await getEvolutionCredentials(queryClient, instance);
 
   try {
     // Fetch chats from Evolution API
@@ -85,7 +94,7 @@ export async function POST(_request: Request, { params }: Params) {
       if (existing) {
         // Even for existing conversations, sync messages that might be missing
         const msgCount = await syncMessagesForConversation(
-          adminSupabase, creds, existing.id, profile.organization_id, jid,
+          adminSupabase, creds, existing.id, orgId, jid,
         );
         totalMessages += msgCount;
         if (msgCount > 0) synced++; // Count as synced if new messages were imported
@@ -97,7 +106,7 @@ export async function POST(_request: Request, { params }: Params) {
         .from('whatsapp_conversations')
         .insert({
           instance_id: instance.id,
-          organization_id: profile.organization_id,
+          organization_id: orgId,
           phone,
           contact_name: contactName,
           is_group: false,
@@ -114,7 +123,7 @@ export async function POST(_request: Request, { params }: Params) {
 
       // Fetch and import messages for this conversation
       const msgCount = await syncMessagesForConversation(
-        adminSupabase, creds, newConv.id, profile.organization_id, jid,
+        adminSupabase, creds, newConv.id, orgId, jid,
       );
       totalMessages += msgCount;
       synced++;
