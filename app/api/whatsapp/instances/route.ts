@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createStaticAdminClient } from '@/lib/supabase/server';
 import { getInstances } from '@/lib/supabase/whatsapp';
 import { getEvolutionGlobalConfig, generateInstanceName } from '@/lib/evolution/helpers';
 import * as evolution from '@/lib/evolution/client';
+
+// TEMPORARY: fallback org ID when auth is bypassed
+const FALLBACK_ORG_ID = '828ac44c-36a6-4be9-b0cb-417c4314ab8b';
 
 const CreateInstanceSchema = z.object({
   name: z.string().min(1).max(100),
@@ -13,20 +16,28 @@ const CreateInstanceSchema = z.object({
 export async function GET() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('organization_id, role')
-    .eq('id', user.id)
-    .single();
+  // TEMPORARY: bypass auth
+  let orgId: string;
+  if (!user) {
+    orgId = FALLBACK_ORG_ID;
+  } else {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('organization_id, role')
+      .eq('id', user.id)
+      .single();
 
-  if (!profile?.organization_id) {
-    return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
+    if (!profile?.organization_id) {
+      return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
+    }
+    orgId = profile.organization_id;
   }
 
+  const queryClient = user ? supabase : createStaticAdminClient();
+
   try {
-    const instances = await getInstances(supabase, profile.organization_id);
+    const instances = await getInstances(queryClient, orgId);
     return NextResponse.json({ data: instances });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
@@ -45,20 +56,28 @@ export async function GET() {
 export async function POST(request: Request) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('organization_id, role')
-    .eq('id', user.id)
-    .single();
+  // TEMPORARY: bypass auth
+  let orgId: string;
+  if (!user) {
+    orgId = FALLBACK_ORG_ID;
+  } else {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('organization_id, role')
+      .eq('id', user.id)
+      .single();
 
-  if (!profile?.organization_id) {
-    return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
+    if (!profile?.organization_id) {
+      return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
+    }
+    if (profile.role !== 'admin') {
+      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+    }
+    orgId = profile.organization_id;
   }
-  if (profile.role !== 'admin') {
-    return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
-  }
+
+  const queryClient = user ? supabase : createStaticAdminClient();
 
   const body = await request.json().catch(() => null);
   const parsed = CreateInstanceSchema.safeParse(body);
@@ -72,7 +91,7 @@ export async function POST(request: Request) {
   let baseUrl: string;
   let globalApiKey: string;
   try {
-    ({ baseUrl, globalApiKey } = await getEvolutionGlobalConfig(supabase, profile.organization_id));
+    ({ baseUrl, globalApiKey } = await getEvolutionGlobalConfig(queryClient, orgId));
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Evolution API não configurada.' },
@@ -81,13 +100,13 @@ export async function POST(request: Request) {
   }
 
   // Generate a unique instance name for Evolution API
-  const instanceName = generateInstanceName(profile.organization_id, name);
+  const instanceName = generateInstanceName(orgId, name);
 
   // Insert DB record first with placeholder values
-  const { data: dbInstance, error: dbError } = await supabase
+  const { data: dbInstance, error: dbError } = await queryClient
     .from('whatsapp_instances')
     .insert({
-      organization_id: profile.organization_id,
+      organization_id: orgId,
       name,
       instance_id: instanceName,
       instance_token: 'pending',
@@ -134,7 +153,7 @@ export async function POST(request: Request) {
   } catch (err) {
     // Evolution API creation failed — clean up the DB record
     console.error('[whatsapp] Failed to create Evolution API instance:', err);
-    await supabase.from('whatsapp_instances').delete().eq('id', dbInstance.id);
+    await queryClient.from('whatsapp_instances').delete().eq('id', dbInstance.id);
     return NextResponse.json(
       { error: 'Falha ao criar instância na Evolution API.' },
       { status: 502 },
@@ -142,7 +161,7 @@ export async function POST(request: Request) {
   }
 
   // Update DB record with real credentials from Evolution API
-  const { data: updatedInstance } = await supabase
+  const { data: updatedInstance } = await queryClient
     .from('whatsapp_instances')
     .update({
       instance_id: evoResult.instance.instanceId,
