@@ -328,16 +328,30 @@ export function findChats(creds: EvolutionCredentials): Promise<unknown[]> {
   });
 }
 
-export function findMessages(
+export async function findMessages(
   creds: EvolutionCredentials,
   remoteJid: string,
 ): Promise<unknown[]> {
-  return instanceRequest<unknown[]>(creds, `/chat/findMessages/${creds.instanceName}`, {
+  // Evolution API v2 returns paginated: { messages: { total, pages, currentPage, records: [...] } }
+  const result = await instanceRequest<unknown>(creds, `/chat/findMessages/${creds.instanceName}`, {
     method: 'POST',
     body: JSON.stringify({
       where: { key: { remoteJid } },
     }),
   });
+
+  // Handle paginated response
+  if (result && typeof result === 'object' && 'messages' in (result as Record<string, unknown>)) {
+    const msgs = (result as Record<string, unknown>).messages as Record<string, unknown>;
+    if (msgs && Array.isArray(msgs.records)) {
+      return msgs.records;
+    }
+  }
+
+  // Fallback: if it's already an array (older API versions)
+  if (Array.isArray(result)) return result;
+
+  return [];
 }
 
 export function findContacts(
