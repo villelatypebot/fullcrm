@@ -8,12 +8,19 @@ type Params = { params: Promise<{ id: string }> };
 // TEMPORARY: fallback org ID when auth is bypassed
 const FALLBACK_ORG_ID = '828ac44c-36a6-4be9-b0cb-417c4314ab8b';
 
+// Max conversations to sync messages for per request (avoid Vercel timeout)
+const MESSAGES_BATCH_SIZE = 15;
+
 /**
  * POST /api/whatsapp/instances/[id]/sync-chats
  *
  * Fetches existing chats from Evolution API and imports them as conversations
- * with their message history. Useful when the webhook missed messages
- * or when the instance was connected before webhooks were configured.
+ * with their message history.
+ *
+ * Query params:
+ *   ?mode=conversations  — Only create conversations, skip messages (fast)
+ *   ?mode=messages        — Sync messages for conversations that don't have any yet
+ *   (default)             — Create conversations + sync messages in batches
  */
 export async function POST(_request: Request, { params }: Params) {
   const { id } = await params;
@@ -52,88 +59,181 @@ export async function POST(_request: Request, { params }: Params) {
   }
 
   const creds = await getEvolutionCredentials(queryClient, instance);
+  const url = new URL(_request.url);
+  const mode = url.searchParams.get('mode') || 'all';
 
   try {
-    // Fetch chats from Evolution API
+    const adminSupabase = createStaticAdminClient();
+
+    // ── MODE: messages ─────────────────────────────────────────────────
+    // Sync messages for conversations that have 0 messages (in batches)
+    if (mode === 'messages') {
+      // Find conversations without messages
+      const { data: emptyConvs } = await adminSupabase
+        .from('whatsapp_conversations')
+        .select('id, phone')
+        .eq('instance_id', instance.id)
+        .eq('organization_id', orgId)
+        .is('last_message_text', null)
+        .limit(MESSAGES_BATCH_SIZE);
+
+      if (!emptyConvs || emptyConvs.length === 0) {
+        return NextResponse.json({
+          data: { synced: 0, messages: 0, remaining: 0 },
+          message: 'Todas as mensagens já estão sincronizadas.',
+        });
+      }
+
+      let totalMessages = 0;
+      let synced = 0;
+
+      for (const conv of emptyConvs) {
+        const jid = `${conv.phone}@s.whatsapp.net`;
+        const msgCount = await syncMessagesForConversation(
+          adminSupabase, creds, conv.id, orgId, jid,
+        );
+        totalMessages += msgCount;
+        if (msgCount > 0) synced++;
+      }
+
+      // Check how many remain
+      const { count: remaining } = await adminSupabase
+        .from('whatsapp_conversations')
+        .select('id', { count: 'exact', head: true })
+        .eq('instance_id', instance.id)
+        .eq('organization_id', orgId)
+        .is('last_message_text', null);
+
+      return NextResponse.json({
+        data: { synced, messages: totalMessages, remaining: remaining ?? 0 },
+        message: synced > 0
+          ? `${synced} conversa(s) com ${totalMessages} mensagem(ns) sincronizadas. ${remaining ?? 0} restante(s).`
+          : 'Nenhuma mensagem nova encontrada neste lote.',
+      });
+    }
+
+    // ── MODE: conversations / all ──────────────────────────────────────
+    // Fetch chats from Evolution API and create conversations
     const chats = await evolution.findChats(creds);
     if (!chats || !Array.isArray(chats)) {
       return NextResponse.json({ data: { synced: 0, messages: 0 }, message: 'Nenhum chat encontrado na Evolution API.' });
     }
 
-    // Use admin client for writing (bypass RLS)
-    const adminSupabase = createStaticAdminClient();
     let synced = 0;
     let totalMessages = 0;
+    let skippedExisting = 0;
+
+    // Batch: get all existing phone numbers for this instance
+    const { data: existingConvs } = await adminSupabase
+      .from('whatsapp_conversations')
+      .select('id, phone')
+      .eq('instance_id', instance.id)
+      .eq('organization_id', orgId);
+
+    const existingPhones = new Map(
+      (existingConvs ?? []).map((c) => [c.phone, c.id]),
+    );
+
+    // Collect conversations to create
+    const toCreate: Array<{
+      phone: string;
+      contactName?: string;
+      jid: string;
+    }> = [];
 
     for (const chat of chats) {
       const chatObj = chat as Record<string, unknown>;
-
-      // Extract JID from the chat object (remoteJid, not id which is internal DB id)
       const jid = (chatObj.remoteJid as string) || (chatObj.id as string) || '';
 
-      // Skip groups (group JIDs end with @g.us)
+      // Skip groups
       if (jid.endsWith('@g.us')) continue;
-      // Skip if not a valid user JID
       if (!jid.endsWith('@s.whatsapp.net')) continue;
 
-      // Clean phone number: strip @s.whatsapp.net suffix
       const phone = jid.replace(/@s\.whatsapp\.net$/, '');
       if (!phone) continue;
 
-      // Extract contact name from chat object
+      if (existingPhones.has(phone)) {
+        skippedExisting++;
+        continue;
+      }
+
       const contactName = (chatObj.name as string) || (chatObj.pushName as string) || undefined;
-
-      // Check if conversation already exists
-      const { data: existing } = await adminSupabase
-        .from('whatsapp_conversations')
-        .select('id')
-        .eq('instance_id', instance.id)
-        .eq('phone', phone)
-        .single();
-
-      if (existing) {
-        // Even for existing conversations, sync messages that might be missing
-        const msgCount = await syncMessagesForConversation(
-          adminSupabase, creds, existing.id, orgId, jid,
-        );
-        totalMessages += msgCount;
-        if (msgCount > 0) synced++; // Count as synced if new messages were imported
-        continue;
-      }
-
-      // Create the conversation
-      const { data: newConv, error: insertError } = await adminSupabase
-        .from('whatsapp_conversations')
-        .insert({
-          instance_id: instance.id,
-          organization_id: orgId,
-          phone,
-          contact_name: contactName,
-          is_group: false,
-          unread_count: 0,
-          last_message_at: new Date().toISOString(),
-        })
-        .select('id')
-        .single();
-
-      if (insertError || !newConv) {
-        console.error('[sync-chats] Error inserting conversation for phone:', phone, insertError?.message);
-        continue;
-      }
-
-      // Fetch and import messages for this conversation
-      const msgCount = await syncMessagesForConversation(
-        adminSupabase, creds, newConv.id, orgId, jid,
-      );
-      totalMessages += msgCount;
-      synced++;
+      toCreate.push({ phone, contactName, jid });
     }
 
+    // Bulk insert conversations (batches of 100)
+    for (let i = 0; i < toCreate.length; i += 100) {
+      const batch = toCreate.slice(i, i + 100);
+      const rows = batch.map((c) => ({
+        instance_id: instance.id,
+        organization_id: orgId,
+        phone: c.phone,
+        contact_name: c.contactName,
+        is_group: false,
+        unread_count: 0,
+        last_message_at: new Date().toISOString(),
+      }));
+
+      const { error: batchErr } = await adminSupabase
+        .from('whatsapp_conversations')
+        .insert(rows);
+
+      if (batchErr) {
+        console.error('[sync-chats] Batch insert error:', batchErr.message);
+        // Try individual inserts for this batch
+        for (const row of rows) {
+          const { error: singleErr } = await adminSupabase
+            .from('whatsapp_conversations')
+            .insert(row);
+          if (!singleErr) synced++;
+          else console.error('[sync-chats] Single insert error:', row.phone, singleErr.message);
+        }
+      } else {
+        synced += batch.length;
+      }
+    }
+
+    // If mode is 'all', also sync messages for a small batch of new conversations
+    if (mode === 'all' && synced > 0) {
+      // Get the newly created conversations (first batch only)
+      const { data: newConvs } = await adminSupabase
+        .from('whatsapp_conversations')
+        .select('id, phone')
+        .eq('instance_id', instance.id)
+        .eq('organization_id', orgId)
+        .is('last_message_text', null)
+        .limit(MESSAGES_BATCH_SIZE);
+
+      if (newConvs) {
+        for (const conv of newConvs) {
+          const jid = `${conv.phone}@s.whatsapp.net`;
+          const msgCount = await syncMessagesForConversation(
+            adminSupabase, creds, conv.id, orgId, jid,
+          );
+          totalMessages += msgCount;
+        }
+      }
+    }
+
+    // Count remaining conversations without messages
+    const { count: remaining } = await adminSupabase
+      .from('whatsapp_conversations')
+      .select('id', { count: 'exact', head: true })
+      .eq('instance_id', instance.id)
+      .eq('organization_id', orgId)
+      .is('last_message_text', null);
+
     return NextResponse.json({
-      data: { synced, total: chats.length, messages: totalMessages },
+      data: {
+        synced,
+        skippedExisting,
+        total: chats.length,
+        messages: totalMessages,
+        remaining: remaining ?? 0,
+      },
       message: synced > 0
-        ? `${synced} conversa(s) sincronizada(s) com ${totalMessages} mensagem(ns)!`
-        : 'Todas as conversas já estão sincronizadas.',
+        ? `${synced} conversa(s) criada(s) com ${totalMessages} mensagem(ns). ${remaining ?? 0} conversa(s) aguardando mensagens.`
+        : `Todas as ${skippedExisting} conversas já estão sincronizadas. ${remaining ?? 0} aguardando mensagens.`,
     });
   } catch (err) {
     console.error('[sync-chats] Error:', err);
@@ -193,14 +293,18 @@ async function syncMessagesForConversation(
     return tsA - tsB;
   });
 
-  // Build insert rows
-  const rows = newMessages.map((m) => {
+  // Limit to last 50 messages per conversation to avoid payload size issues
+  const recentMessages = newMessages.slice(-50);
+
+  // Build insert rows — also capture pushName for contact name
+  let contactPushName: string | undefined;
+  const rows = recentMessages.map((m) => {
     const key = m.key as Record<string, unknown> | undefined;
     const messageId = key?.id as string | undefined;
     const fromMe = (key?.fromMe as boolean) ?? false;
     const senderName = (m.pushName as string) || undefined;
+    if (senderName && !fromMe) contactPushName = senderName;
     const rawTimestamp = Number(m.messageTimestamp) || 0;
-    // Evolution API timestamps may be in seconds — convert to milliseconds if needed
     const timestampMs = rawTimestamp > 1e12 ? rawTimestamp : rawTimestamp * 1000;
     const whatsappTimestamp = rawTimestamp ? new Date(timestampMs).toISOString() : new Date().toISOString();
 
@@ -225,7 +329,7 @@ async function syncMessagesForConversation(
     };
   });
 
-  // Batch insert (Supabase supports bulk insert)
+  // Batch insert
   const { error: batchError } = await supabase
     .from('whatsapp_messages')
     .insert(rows);
@@ -235,17 +339,23 @@ async function syncMessagesForConversation(
     return 0;
   }
 
-  // Update conversation with last message info
+  // Update conversation with last message info + contact name
   const lastMsg = rows[rows.length - 1];
   const previewText = lastMsg.text_body || lastMsg.media_caption || (lastMsg.message_type !== 'text' ? `[${lastMsg.message_type}]` : '');
+  const updateData: Record<string, unknown> = {
+    last_message_text: previewText.slice(0, 255),
+    last_message_at: lastMsg.whatsapp_timestamp,
+    last_message_from_me: lastMsg.from_me,
+    updated_at: new Date().toISOString(),
+  };
+  // Also update contact_name if we found a pushName from incoming messages
+  if (contactPushName) {
+    updateData.contact_name = contactPushName;
+  }
+
   await supabase
     .from('whatsapp_conversations')
-    .update({
-      last_message_text: previewText.slice(0, 255),
-      last_message_at: lastMsg.whatsapp_timestamp,
-      last_message_from_me: lastMsg.from_me,
-      updated_at: new Date().toISOString(),
-    })
+    .update(updateData)
     .eq('id', conversationId);
 
   return rows.length;
@@ -253,17 +363,6 @@ async function syncMessagesForConversation(
 
 /**
  * Extract content from an Evolution API message object.
- *
- * Evolution API message structure:
- *   message.message.conversation → text
- *   message.message.extendedTextMessage.text → text (with link preview etc.)
- *   message.message.imageMessage → image
- *   message.message.videoMessage → video
- *   message.message.audioMessage → audio
- *   message.message.documentMessage → document
- *   message.message.stickerMessage → sticker
- *   message.message.locationMessage → location
- *   message.message.reactionMessage → reaction
  */
 function extractEvolutionMessageContent(msg: Record<string, unknown>): {
   messageType: string;
@@ -280,18 +379,15 @@ function extractEvolutionMessageContent(msg: Record<string, unknown>): {
     return { messageType: 'text', textBody: '[Mensagem não suportada]' };
   }
 
-  // Plain text conversation
   if (typeof messageObj.conversation === 'string') {
     return { messageType: 'text', textBody: messageObj.conversation };
   }
 
-  // Extended text message (with link previews, mentions, etc.)
   const extendedText = messageObj.extendedTextMessage as Record<string, unknown> | undefined;
   if (extendedText?.text) {
     return { messageType: 'text', textBody: extendedText.text as string };
   }
 
-  // Image message
   const imageMsg = messageObj.imageMessage as Record<string, unknown> | undefined;
   if (imageMsg) {
     return {
@@ -302,7 +398,6 @@ function extractEvolutionMessageContent(msg: Record<string, unknown>): {
     };
   }
 
-  // Video message
   const videoMsg = messageObj.videoMessage as Record<string, unknown> | undefined;
   if (videoMsg) {
     return {
@@ -313,7 +408,6 @@ function extractEvolutionMessageContent(msg: Record<string, unknown>): {
     };
   }
 
-  // Audio message
   const audioMsg = messageObj.audioMessage as Record<string, unknown> | undefined;
   if (audioMsg) {
     return {
@@ -323,7 +417,6 @@ function extractEvolutionMessageContent(msg: Record<string, unknown>): {
     };
   }
 
-  // Document message
   const documentMsg = messageObj.documentMessage as Record<string, unknown> | undefined;
   if (documentMsg) {
     return {
@@ -335,7 +428,6 @@ function extractEvolutionMessageContent(msg: Record<string, unknown>): {
     };
   }
 
-  // Sticker message
   const stickerMsg = messageObj.stickerMessage as Record<string, unknown> | undefined;
   if (stickerMsg) {
     return {
@@ -345,7 +437,6 @@ function extractEvolutionMessageContent(msg: Record<string, unknown>): {
     };
   }
 
-  // Location message
   const locationMsg = messageObj.locationMessage as Record<string, unknown> | undefined;
   if (locationMsg) {
     return {
@@ -355,7 +446,6 @@ function extractEvolutionMessageContent(msg: Record<string, unknown>): {
     };
   }
 
-  // Reaction message
   const reactionMsg = messageObj.reactionMessage as Record<string, unknown> | undefined;
   if (reactionMsg) {
     return { messageType: 'reaction', textBody: reactionMsg.text as string | undefined };
