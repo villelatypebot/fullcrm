@@ -110,18 +110,6 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
  * }
  * ```
  */
-// ── TEMPORARY: Fallback profile when auth is bypassed ────────────────
-// Remove this constant and the fallback logic below once login is fixed.
-const FALLBACK_ORG_ID = '828ac44c-36a6-4be9-b0cb-417c4314ab8b' as OrganizationId;
-const FALLBACK_PROFILE: Profile = {
-    id: '00000000-0000-0000-0000-000000000000',
-    email: 'admin@fullhouse.com.br',
-    organization_id: FALLBACK_ORG_ID,
-    role: 'admin',
-    first_name: 'Admin',
-};
-// ─────────────────────────────────────────────────────────────────────
-
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [session, setSession] = useState<Session | null>(null);
     const [user, setUser] = useState<User | null>(null);
@@ -197,8 +185,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (session?.user) {
                 fetchProfile(session.user.id);
             } else {
-                // TEMPORARY: use fallback profile when no session
-                setProfile(FALLBACK_PROFILE);
                 setLoading(false);
             }
         });
@@ -209,8 +195,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (session?.user) {
                 fetchProfile(session.user.id);
             } else {
-                // TEMPORARY: use fallback profile when no session
-                setProfile(FALLBACK_PROFILE);
+                setProfile(null);
                 setLoading(false);
             }
         });
