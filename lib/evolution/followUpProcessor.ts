@@ -21,6 +21,7 @@ import {
   getPendingFollowUps,
   updateFollowUpStatus,
   getMemories,
+  createFollowUp,
 } from '@/lib/supabase/whatsappIntelligence';
 import { getAIConfig, insertAILog, updateConversation, getConversation } from '@/lib/supabase/whatsapp';
 import { generateFollowUpMessage } from '@/lib/evolution/intelligence';
@@ -200,4 +201,54 @@ async function processOneFollowUp(
   });
 
   result.sent++;
+
+  // Chain next follow-up step if sequence is configured
+  const followUpContext = followUp.context as Record<string, unknown> | undefined;
+  const sequenceIndex = followUpContext?.sequence_index;
+  const totalSteps = followUpContext?.total_steps;
+
+  if (typeof sequenceIndex === 'number') {
+    const sequence = Array.isArray(config.follow_up_sequence)
+      ? config.follow_up_sequence as Array<{ delay_minutes: number; label: string }>
+      : [];
+    const nextIndex = sequenceIndex + 1;
+    const nextStep = sequence[nextIndex];
+    const maxSteps = typeof totalSteps === 'number'
+      ? totalSteps
+      : Math.min(sequence.length, config.follow_up_max_per_conversation ?? 3);
+
+    if (nextStep && nextIndex < maxSteps) {
+      const nextTriggerAt = new Date(Date.now() + nextStep.delay_minutes * 60 * 1000);
+
+      await createFollowUp(supabase, {
+        conversation_id: followUp.conversation_id,
+        organization_id: followUp.organization_id,
+        instance_id: followUp.instance_id,
+        trigger_at: nextTriggerAt.toISOString(),
+        follow_up_type: 'smart',
+        detected_intent: followUp.detected_intent ?? undefined,
+        intent_confidence: followUp.intent_confidence ?? undefined,
+        context: {
+          ...(followUpContext ?? {}),
+          sequence_index: nextIndex,
+          total_steps: maxSteps,
+        },
+        original_customer_message: followUp.original_customer_message ?? undefined,
+        original_message_id: followUp.original_message_id ?? undefined,
+      });
+
+      await insertAILog(supabase, {
+        conversation_id: followUp.conversation_id,
+        organization_id: followUp.organization_id,
+        action: 'follow_up_chained',
+        details: {
+          previous_step: sequenceIndex,
+          next_step: nextIndex,
+          delay_minutes: nextStep.delay_minutes,
+          total_steps: maxSteps,
+        },
+        triggered_by: 'ai',
+      });
+    }
+  }
 }

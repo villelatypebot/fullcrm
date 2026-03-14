@@ -146,6 +146,7 @@ export interface WhatsAppAIConfig {
   smart_pause_enabled: boolean;
   follow_up_default_delay_minutes: number;
   follow_up_max_per_conversation: number;
+  follow_up_sequence?: Array<{ delay_minutes: number; label: string }>;
   follow_up_quiet_hours_start?: string;
   follow_up_quiet_hours_end?: string;
   created_at: string;
@@ -311,6 +312,7 @@ export type AILogAction =
   | 'follow_up_scheduled'
   | 'follow_up_sent'
   | 'follow_up_cancelled'
+  | 'follow_up_chained'
   | 'label_assigned'
   | 'label_removed'
   | 'lead_score_updated'

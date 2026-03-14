@@ -31,14 +31,16 @@ import {
   getMemories,
   saveExtractedMemories,
   upsertLeadScore,
+  getLeadScore,
   assignLabelByName,
   ensureDefaultLabels,
   createFollowUp,
-  countActiveFollowUps,
+  cancelPendingFollowUps,
   insertSummary,
 } from '@/lib/supabase/whatsappIntelligence';
 import { analyzeMessage } from '@/lib/evolution/intelligence';
 import * as evolution from '@/lib/evolution/client';
+import { buildReservationSystemPrompt } from '@/lib/evolution/reservationTools';
 
 interface AIAgentContext {
   supabase: SupabaseClient;
@@ -221,8 +223,14 @@ async function generateAIResponse(
     memoryContext || '',
   ].filter(Boolean).join('\n');
 
+  // Add reservation context if configured
+  const reservationContext = await buildReservationSystemPrompt(supabase, organizationId);
+  const fullSystemPrompt = reservationContext
+    ? `${systemPrompt}\n\n${reservationContext}`
+    : systemPrompt;
+
   const messages = [
-    { role: 'system' as const, content: systemPrompt },
+    { role: 'system' as const, content: fullSystemPrompt },
     ...(conversationHistory
       ? conversationHistory.split('\n').map((line) => {
           const isAssistant = line.startsWith('Assistente:');
@@ -413,6 +421,24 @@ export async function processIncomingMessage(ctx: AIAgentContext): Promise<void>
   // Auto-create deal
   if (contactId) {
     await autoCreateDeal(supabase, conversation, contactId, config);
+
+    // Sync existing lead score to newly linked contact
+    const existingLeadScore = await getLeadScore(supabase, conversation.id);
+    if (existingLeadScore && (!existingLeadScore.contact_id || existingLeadScore.contact_id !== contactId)) {
+      await supabase
+        .from('whatsapp_lead_scores')
+        .update({ contact_id: contactId })
+        .eq('conversation_id', conversation.id);
+
+      await supabase
+        .from('contacts')
+        .update({
+          temperature: existingLeadScore.temperature,
+          lead_score: existingLeadScore.score,
+          buying_stage: existingLeadScore.buying_stage,
+        })
+        .eq('id', contactId);
+    }
   }
 
   // =========================================================================
@@ -514,46 +540,57 @@ export async function processIncomingMessage(ctx: AIAgentContext): Promise<void>
       );
 
       if (followUpIntents.length > 0) {
-        const activeCount = await countActiveFollowUps(supabase, conversation.id);
-        const maxFollowUps = config.follow_up_max_per_conversation ?? 3;
+        // Cancel any existing pending follow-ups before scheduling new ones
+        await cancelPendingFollowUps(supabase, conversation.id);
 
-        if (activeCount < maxFollowUps) {
-          // Use the highest-confidence intent for the follow-up
-          const primaryIntent = followUpIntents.sort((a, b) => b.confidence - a.confidence)[0];
-          const delayMinutes = primaryIntent.follow_up_delay_minutes ?? config.follow_up_default_delay_minutes ?? 30;
+        // Use the highest-confidence intent for the follow-up
+        const primaryIntent = followUpIntents.sort((a, b) => b.confidence - a.confidence)[0];
 
-          const triggerAt = new Date(Date.now() + delayMinutes * 60 * 1000);
+        // Use configured sequence STRICTLY - never AI intent delays
+        const sequence = Array.isArray(config.follow_up_sequence)
+          ? config.follow_up_sequence as Array<{ delay_minutes: number; label: string }>
+          : [];
+        const maxFollowUps = sequence.length > 0
+          ? Math.min(sequence.length, config.follow_up_max_per_conversation ?? 3)
+          : 1;
+        const delayMinutes = sequence[0]?.delay_minutes
+          ?? config.follow_up_default_delay_minutes ?? 30;
 
-          await createFollowUp(supabase, {
-            conversation_id: conversation.id,
-            organization_id: instance.organization_id,
-            instance_id: instance.id,
+        const triggerAt = new Date(Date.now() + delayMinutes * 60 * 1000);
+
+        await createFollowUp(supabase, {
+          conversation_id: conversation.id,
+          organization_id: instance.organization_id,
+          instance_id: instance.id,
+          trigger_at: triggerAt.toISOString(),
+          follow_up_type: 'smart',
+          detected_intent: primaryIntent.intent,
+          intent_confidence: primaryIntent.confidence,
+          context: {
+            ...primaryIntent.context,
+            customer_name: conversation.contact_name || '',
+            context_for_message: intelligence.summary || '',
+            sequence_index: 0,
+            total_steps: maxFollowUps,
+          },
+          original_customer_message: incomingText,
+          original_message_id: incomingMessage.id,
+        });
+
+        await insertAILog(supabase, {
+          conversation_id: conversation.id,
+          organization_id: instance.organization_id,
+          action: 'follow_up_scheduled',
+          details: {
+            intent: primaryIntent.intent,
             trigger_at: triggerAt.toISOString(),
-            follow_up_type: 'smart',
-            detected_intent: primaryIntent.intent,
-            intent_confidence: primaryIntent.confidence,
-            context: {
-              ...primaryIntent.context,
-              customer_name: conversation.contact_name || '',
-              context_for_message: intelligence.summary || '',
-            },
-            original_customer_message: incomingText,
-            original_message_id: incomingMessage.id,
-          });
-
-          await insertAILog(supabase, {
-            conversation_id: conversation.id,
-            organization_id: instance.organization_id,
-            action: 'follow_up_scheduled',
-            details: {
-              intent: primaryIntent.intent,
-              trigger_at: triggerAt.toISOString(),
-              delay_minutes: delayMinutes,
-            },
-            message_id: incomingMessage.id,
-            triggered_by: 'ai',
-          });
-        }
+            delay_minutes: delayMinutes,
+            sequence_step: 0,
+            total_steps: maxFollowUps,
+          },
+          message_id: incomingMessage.id,
+          triggered_by: 'ai',
+        });
       }
     }
 
