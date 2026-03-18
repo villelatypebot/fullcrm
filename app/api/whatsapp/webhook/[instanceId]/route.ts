@@ -19,6 +19,10 @@ import type {
 
 type Params = { params: Promise<{ instanceId: string }> };
 
+// Force Vercel to allow up to 60 seconds execution time for this webhook
+// This is strictly required because we have a 30 seconds AI batching delay inside!
+export const maxDuration = 60;
+
 /**
  * Evolution API Webhook receiver.
  *

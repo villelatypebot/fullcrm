@@ -97,6 +97,7 @@ export function IntelligencePanel({ conversation }: IntelligencePanelProps) {
 
         {/* Follow-ups */}
         <FollowUpsSection
+          conversationId={conversation.id}
           followUps={data.followUps}
           expanded={expandedSections.has('followups')}
           onToggle={() => toggleSection('followups')}
@@ -374,16 +375,32 @@ function MemorySection({
 // =============================================================================
 
 function FollowUpsSection({
+  conversationId,
   followUps,
   expanded,
   onToggle,
 }: {
+  conversationId: string;
   followUps: WhatsAppFollowUp[];
   expanded: boolean;
   onToggle: () => void;
 }) {
+  const [isTriggering, setIsTriggering] = useState(false);
   const pending = followUps.filter((f) => f.status === 'pending');
   const sent = followUps.filter((f) => f.status === 'sent');
+
+  const handleManualTrigger = async () => {
+    try {
+      setIsTriggering(true);
+      const res = await fetch(`/api/whatsapp/conversations/${conversationId}/manual-followup`, { method: 'POST' });
+      if (!res.ok) throw new Error('Falha ao disparar');
+      alert('Follow-Up IA disparado com sucesso!');
+    } catch (e) {
+      alert('Erro ao forçar IA.');
+    } finally {
+      setIsTriggering(false);
+    }
+  };
 
   return (
     <div className="rounded-xl border border-slate-200 dark:border-white/10 overflow-hidden">
@@ -439,6 +456,19 @@ function FollowUpsSection({
               )}
             </>
           )}
+          
+          <button
+            onClick={handleManualTrigger}
+            disabled={isTriggering}
+            className="w-full mt-2 flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 dark:text-slate-900 text-white text-[11px] font-bold rounded-lg transition-colors disabled:opacity-50"
+          >
+            {isTriggering ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Zap className="w-3.5 h-3.5" />
+            )}
+            Forçar Follow-Up / Resposta da IA Agora
+          </button>
         </div>
       )}
     </div>
