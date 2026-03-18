@@ -1,218 +1,125 @@
-/**
- * Reservation Tools for the WhatsApp AI Agent
- *
- * Provides functions to check availability, create reservations,
- * and look up existing bookings. Called by the AI agent during
- * message processing.
- */
-
+import { tool } from 'ai';
+import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createReservationClient } from '@/lib/reservations/client';
 
-export interface ReservationAction {
-  type: 'check_availability' | 'create_reservation' | 'lookup_reservation' | 'cancel_reservation';
-  params: Record<string, unknown>;
-}
-
 /**
- * Detect if the customer message is about reservations and extract action parameters.
+ * Retorna os Tools oficiais (Vercel AI SDK Core) para Agendamentos
  */
-export async function detectReservationIntent(
+export async function buildReservationTools(
   supabase: SupabaseClient,
   organizationId: string,
-  customerMessage: string,
-  conversationHistory: string,
-): Promise<{
-  isReservationRelated: boolean;
-  action?: ReservationAction;
-  availabilityContext?: string;
-}> {
-  // Check if message mentions reservation-related keywords
-  const reservationKeywords = [
-    'reserv', 'agendar', 'agenda', 'marcar', 'horario', 'horário',
-    'disponivel', 'disponível', 'vaga', 'mesa', 'lugar',
-    'cancelar', 'desmarcar', 'codigo', 'código', 'confirmação',
-    'confirmar', 'quantas pessoas', 'pax', 'booking',
-  ];
-
-  const lowerMsg = customerMessage.toLowerCase();
-  const isReservationRelated = reservationKeywords.some(kw => lowerMsg.includes(kw));
-
-  if (!isReservationRelated) {
-    return { isReservationRelated: false };
-  }
-
-  // Get reservation client
+  customerInfo: { phone: string; name: string }
+) {
   const client = await createReservationClient(supabase, organizationId);
-  if (!client) {
-    return { isReservationRelated: true };
-  }
-
-  // Build fresh availability context
-  const availabilityContext = await client.buildAvailabilitySummary();
-
-  // Detect specific action
-  const action = detectSpecificAction(lowerMsg, conversationHistory);
+  if (!client) return {};
 
   return {
-    isReservationRelated: true,
-    action,
-    availabilityContext,
+    check_availability: tool({
+      description: 'Consulta a disponibilidade exata de horários, vagas e lotações de uma unidade de reserva para uma data específica.',
+      parameters: z.object({
+        date: z.string().describe('Data da reserva solicitada no formato YYYY-MM-DD'),
+      }),
+      execute: async ({ date }: { date: string }): Promise<any> => {
+        try {
+          const units = await client.getUnits();
+          if (units.length === 0) return { available: false, message: 'Nenhuma unidade configurada' };
+
+          // We assume single-unit for this example to simplify the prompt interaction (or the first available unit)
+          const targetUnit = units[0];
+          const availability = await client.getAvailability(targetUnit.id, date);
+
+          const availableSlots = availability.slots.filter(s => s.availablePax > 0);
+          
+          if (availableSlots.length === 0) {
+            return {
+              available: false,
+              message: `A unidade ${targetUnit.name} está LOTADA ou FECHADA nesta data (${date}). Ofereça outra data.`,
+            };
+          }
+
+          return {
+            available: true,
+            unit_id: targetUnit.id,
+            date,
+            message: `Unidade ${targetUnit.name} aberta nesse dia. Mostre esses horários e vagas pro cliente:`,
+            available_time_slots: availableSlots.map(s => ({
+              time: s.time,
+              available_pax_capacity: s.availablePax
+            })),
+          };
+        } catch (e: any) {
+          return { error: 'Falha ao consultar disponibilidade de banco de dados: ' + e.message };
+        }
+      },
+    } as any),
+
+    create_reservation: tool({
+      description: 'Agenda e finaliza uma reserva em nome do cliente. Certifique-se ANTES (chamando check_availability) de que o horário tem vagas (pax) o suficiente para o número pedido de pessoas.',
+      parameters: z.object({
+        unit_id: z.string().describe('ID da unidade em UUID retornado pelo check_availability'),
+        date: z.string().describe('Data da reserva no formato YYYY-MM-DD'),
+        time: z.string().describe('Horário exato da reserva no formato HH:MM (ex: 18:00)'),
+        pax: z.number().describe('Quantidade total de pessoas na mesa (pax)'),
+      }),
+      execute: async ({ unit_id, date, time, pax }: { unit_id: string; date: string; time: string; pax: number }): Promise<any> => {
+        try {
+          // Check for capacity safely
+          const availability = await client.getAvailability(unit_id, date);
+          const requestedSlot = availability.slots.find(s => s.time.startsWith(time));
+          
+          if (!requestedSlot || requestedSlot.availablePax < pax) {
+             return { error: `Capacidade indisponível. Temos apenas ${requestedSlot?.availablePax || 0} vagas nesse horário.` };
+          }
+
+          const reservation = await client.createReservation({
+            unitId: unit_id,
+            date,
+            time: requestedSlot.time, // Enforce normalized DD:MM:SS
+            pax,
+            name: customerInfo.name || 'Cliente WhatsApp',
+            phone: customerInfo.phone,
+          });
+
+          return {
+            success: true,
+            message: 'A reserva foi efetuada e gravada com sucesso no sistema!',
+            confirmation_code: reservation.confirmation_code,
+          };
+        } catch (e: any) {
+          return { error: 'Falha durante o insert da reserva: ' + e.message };
+        }
+      },
+    } as any),
+
+    lookup_reservation: tool({
+      description: 'Busca os detalhes de uma reserva pelo código de confirmação alphanumérico.',
+      parameters: z.object({
+         code: z.string().describe('O código de confirmação da reserva. Ex: FH-A1B2C'),
+      }),
+      execute: async ({ code }: { code: string }): Promise<any> => {
+        try {
+          const reservation = await client.getByCode(code);
+          if (!reservation) return { found: false, message: 'Reserva não encontrada.' };
+          
+          return {
+            found: true,
+            status: reservation.status,
+            date: reservation.reservation_date,
+            time: reservation.reservation_time,
+            pax: reservation.pax,
+            linked_customer_id: reservation.customer_id
+          };
+        } catch (e: any) {
+          return { error: 'Falha ao processar código: ' + e.message };
+        }
+      }
+    } as any),
   };
 }
 
-function detectSpecificAction(message: string, _history: string): ReservationAction | undefined {
-  // Cancel/lookup patterns
-  if (message.match(/cancel|desmarc/i)) {
-    return { type: 'cancel_reservation', params: {} };
-  }
-
-  if (message.match(/codigo|código|confirmação|confirma[çc]/i)) {
-    // Extract confirmation code (usually uppercase letters/numbers)
-    const codeMatch = message.match(/\b([A-Z0-9]{4,8})\b/);
-    if (codeMatch) {
-      return { type: 'lookup_reservation', params: { code: codeMatch[1] } };
-    }
-    return { type: 'lookup_reservation', params: {} };
-  }
-
-  // Check availability patterns
-  if (message.match(/disponivel|disponível|tem vaga|horario|horário|quando|que dia/i)) {
-    return { type: 'check_availability', params: {} };
-  }
-
-  // Create reservation patterns
-  if (message.match(/reserv|agendar|marcar|quero|gostaria|pode marca/i)) {
-    return { type: 'create_reservation', params: {} };
-  }
-
-  return undefined;
-}
-
 /**
- * Execute a reservation action and return context for the AI response.
- */
-export async function executeReservationAction(
-  supabase: SupabaseClient,
-  organizationId: string,
-  action: ReservationAction,
-  params: {
-    name?: string;
-    phone?: string;
-    date?: string;
-    time?: string;
-    pax?: number;
-    code?: string;
-  },
-): Promise<{
-  success: boolean;
-  message: string;
-  data?: Record<string, unknown>;
-}> {
-  const client = await createReservationClient(supabase, organizationId);
-  if (!client) {
-    return { success: false, message: 'Sistema de reservas nao configurado.' };
-  }
-
-  try {
-    switch (action.type) {
-      case 'check_availability': {
-        const summary = await client.buildAvailabilitySummary();
-        return { success: true, message: summary };
-      }
-
-      case 'create_reservation': {
-        if (!params.name || !params.phone || !params.date || !params.time || !params.pax) {
-          const missing: string[] = [];
-          if (!params.name) missing.push('nome');
-          if (!params.phone) missing.push('telefone');
-          if (!params.date) missing.push('data');
-          if (!params.time) missing.push('horario');
-          if (!params.pax) missing.push('numero de pessoas');
-          return {
-            success: false,
-            message: `Informacoes faltando para a reserva: ${missing.join(', ')}`,
-          };
-        }
-
-        // Get first active unit
-        const units = await client.getUnits();
-        if (units.length === 0) {
-          return { success: false, message: 'Nenhuma unidade disponivel.' };
-        }
-
-        // Check availability for the requested date/time
-        const availability = await client.getAvailability(units[0].id, params.date);
-        const requestedSlot = availability.slots.find(s => s.time === params.time);
-
-        if (!requestedSlot || requestedSlot.availablePax < (params.pax || 1)) {
-          return {
-            success: false,
-            message: `Sem disponibilidade para ${params.pax} pessoas no horario ${params.time} do dia ${params.date}. Horarios disponiveis: ${availability.slots.filter(s => s.availablePax > 0).map(s => `${s.time} (${s.availablePax} vagas)`).join(', ')}`,
-          };
-        }
-
-        const reservation = await client.createReservation({
-          unitId: units[0].id,
-          date: params.date,
-          time: params.time,
-          pax: params.pax,
-          name: params.name,
-          phone: params.phone,
-        });
-
-        return {
-          success: true,
-          message: `Reserva confirmada! Codigo: ${reservation.confirmation_code}`,
-          data: {
-            confirmation_code: reservation.confirmation_code,
-            date: params.date,
-            time: params.time,
-            pax: params.pax,
-          },
-        };
-      }
-
-      case 'lookup_reservation': {
-        const code = params.code || (action.params.code as string);
-        if (!code) {
-          return { success: false, message: 'Informe o codigo da reserva.' };
-        }
-
-        const reservation = await client.getByCode(code);
-        if (!reservation) {
-          return { success: false, message: `Nenhuma reserva encontrada com o codigo ${code}.` };
-        }
-
-        const customerData = reservation.customers as { name?: string } | undefined;
-        const unitData = reservation.units as { name?: string } | undefined;
-        return {
-          success: true,
-          message: `Reserva #${code}: ${customerData?.name || 'Cliente'} - ${reservation.reservation_date} as ${reservation.reservation_time} - ${reservation.pax} pessoas - ${unitData?.name || ''} - Status: ${reservation.status}`,
-          data: reservation as unknown as Record<string, unknown>,
-        };
-      }
-
-      case 'cancel_reservation': {
-        // We don't cancel directly - inform the user to use the link
-        return {
-          success: true,
-          message: 'Para cancelar sua reserva, acesse: https://fullhouseagendamento.vercel.app/minha-reserva e informe seu codigo de confirmacao.',
-        };
-      }
-
-      default:
-        return { success: false, message: 'Acao nao reconhecida.' };
-    }
-  } catch (err) {
-    console.error('[reservation-tools] Error:', err);
-    return { success: false, message: 'Erro ao processar sua solicitacao de reserva.' };
-  }
-}
-
-/**
- * Build enhanced reservation instructions for the AI system prompt.
- * Includes real-time availability data.
+ * Build the system prompt rules to prime the AI for Tool Calling mechanics.
  */
 export async function buildReservationSystemPrompt(
   supabase: SupabaseClient,
@@ -221,38 +128,12 @@ export async function buildReservationSystemPrompt(
   const client = await createReservationClient(supabase, organizationId);
   if (!client) return '';
 
-  try {
-    const availability = await client.buildAvailabilitySummary();
-
-    return `
-${availability}
-
-INSTRUCOES DE RESERVA (IMPORTANTE - SIGA EXATAMENTE):
-1. Para CONSULTAR disponibilidade: mostre os horarios e vagas disponiveis da informacao acima
-2. Para CRIAR reserva: colete TODAS as informacoes necessarias antes de confirmar:
-   - Nome completo
-   - Telefone (pode usar o da conversa)
-   - Data desejada (formato YYYY-MM-DD)
-   - Horario desejado (formato HH:MM)
-   - Numero de pessoas
-3. Antes de confirmar, verifique se o horario e data solicitados TEM VAGAS
-4. Se nao houver vaga, sugira horarios alternativos
-5. Sempre informe o link para reserva online: https://fullhouseagendamento.vercel.app
-6. Se o cliente mencionar um codigo de confirmacao, busque os detalhes da reserva
-7. Para cancelamento, direcione para: https://fullhouseagendamento.vercel.app/minha-reserva
-8. Use o telefone da conversa WhatsApp como telefone da reserva (a menos que o cliente informe outro)
-9. NUNCA invente horarios ou disponibilidade - use APENAS os dados acima
-
-FORMATO DE CONFIRMACAO:
-Quando tiver todas as informacoes, confirme com o cliente:
-"Vou confirmar sua reserva:
-Data: [data]
-Horario: [horario]
-Pessoas: [numero]
-Nome: [nome]
-Posso confirmar?"`;
-  } catch (err) {
-    console.error('[reservation-tools] Failed to build prompt:', err);
-    return '';
-  }
+  return `
+REGRAS E CAPACIDADES DO AGENDAMENTO NATIVO (GOL DE BICICLETA):
+1. Você tem total acesso ao sistema de reservas! Utilize a ferramenta (Tool Call) 'check_availability' SEMPRE que o usuário demonstrar interesse em um dia e quiser ver horários.
+2. NUNCA invente horários! Leia exatamente o que a 'check_availability' te retornar de resposta.
+3. Se o usuário confirmar quantas pessoas são e qual horário querem, você TEM PERMISSÃO para chamar a ferramenta 'create_reservation'.
+4. Confirmação: Informe ao usuário do SUCESSO e mande o Código Alphanumérico de Confirmação que a Tool retornar para ele! Se der erro, informe sem tecnicalidades.
+5. Se o usuário quiser cancelar, peça para ele acessar o portal online (https://fullhouseagendamento.vercel.app/minha-reserva). Você APENAS faz a reserva via Banco de Dados (Tool), sem desmarcar.
+`;
 }

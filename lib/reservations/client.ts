@@ -16,9 +16,11 @@ import type {
 
 export class ReservationClient {
   private supabase: SupabaseClient;
+  private organizationId: string;
 
-  constructor(supabaseUrl: string, serviceRoleKey: string) {
-    this.supabase = createClient(supabaseUrl, serviceRoleKey);
+  constructor(supabase: SupabaseClient, organizationId: string) {
+    this.supabase = supabase;
+    this.organizationId = organizationId;
   }
 
   /**
@@ -28,6 +30,7 @@ export class ReservationClient {
     const { data, error } = await this.supabase
       .from('units')
       .select('*')
+      .eq('organization_id', this.organizationId)
       .eq('is_active', true)
       .order('name');
 
@@ -230,21 +233,12 @@ export class ReservationClient {
 }
 
 /**
- * Create a ReservationClient from organization settings.
+ * Create a ReservationClient bounded to an Organization.
  */
 export async function createReservationClient(
   supabase: SupabaseClient,
   organizationId: string,
 ): Promise<ReservationClient | null> {
-  const { data: settings } = await supabase
-    .from('organization_settings')
-    .select('reservation_supabase_url, reservation_supabase_key')
-    .eq('organization_id', organizationId)
-    .single();
-
-  if (!settings?.reservation_supabase_url || !settings?.reservation_supabase_key) {
-    return null;
-  }
-
-  return new ReservationClient(settings.reservation_supabase_url, settings.reservation_supabase_key);
+  // Now running on unified DB, we just wrap the existing client
+  return new ReservationClient(supabase, organizationId);
 }

@@ -40,7 +40,7 @@ import {
 } from '@/lib/supabase/whatsappIntelligence';
 import { analyzeMessage } from '@/lib/evolution/intelligence';
 import * as evolution from '@/lib/evolution/client';
-import { buildReservationSystemPrompt } from '@/lib/evolution/reservationTools';
+import { buildReservationSystemPrompt, buildReservationTools } from './reservationTools';
 
 interface AIAgentContext {
   supabase: SupabaseClient;
@@ -178,6 +178,7 @@ async function generateAIResponse(
   crmContext: string,
   memoryContext: string,
   incomingText: string,
+  customerInfo: { phone: string; name: string }
 ): Promise<string> {
   const { data: orgSettings } = await supabase
     .from('organization_settings')
@@ -259,11 +260,15 @@ async function generateAIResponse(
     modelInstance = anthropic(model);
   }
 
+  const reservationTools = await buildReservationTools(supabase, organizationId, customerInfo);
+
   const result = await generateText({
     model: modelInstance,
     messages,
     maxOutputTokens: 500,
-  });
+    maxSteps: 3, // Enable Tool Calling Loop Sequence
+    tools: reservationTools,
+  } as any);
 
   return result.text || config.transfer_message || 'Desculpe, nao consegui processar sua mensagem.';
 }
@@ -717,17 +722,20 @@ async function _executeAIAfterBatch(ctx: AIAgentContext, conversation: WhatsAppC
   }
 
   // Generate AI response with FULL context (memories included!)
-  const messageText = incomingText || `[Mensagem combinada de arquivos]`;
+  const organizationId = instance.organization_id;
+  const historyString = conversationHistory;
+  const incomingMessage = ctx.incomingMessage;
 
   try {
     const aiResponse = await generateAIResponse(
       supabase,
-      instance.organization_id,
+      organizationId,
       config,
-      conversationHistory,
+      historyString,
       crmContext,
       memoryContext,
-      messageText,
+      (incomingMessage as any).text?.body || '',
+      { phone: conversation.phone, name: conversation.contact_name || 'Cliente WhatsApp' }
     );
 
     if (config.reply_delay_ms > 0) {
