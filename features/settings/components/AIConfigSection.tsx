@@ -27,12 +27,9 @@ const AI_PROVIDERS = [
         id: 'openai',
         name: 'OpenAI',
         models: [
-            { id: 'gpt-5.2', name: 'GPT-5.2 (Preview)', description: 'Preview', price: '$1.75 / $14' },
-            { id: 'gpt-5.2-pro', name: 'GPT-5.2 Pro', description: 'Premium', price: '$21 / $168' },
-            { id: 'gpt-5.2-chat-latest', name: 'GPT-5.2 Chat Latest', description: 'Latest chat', price: '$1.75 / $14' },
-            { id: 'gpt-5-mini', name: 'GPT-5 Mini', description: 'Fast & efficient', price: '$0.25 / $2' },
-            { id: 'gpt-5-nano', name: 'GPT-5 Nano', description: 'Ultra fast', price: '$0.05 / $0.40' },
-            { id: 'gpt-4o', name: 'GPT-4o', description: 'Legacy flagship', price: '$2.50 / $10' },
+            { id: 'gpt-4o', name: 'GPT-4o', description: 'Recomendado - Mais Recente', price: '$2.50 / $10' },
+            { id: 'gpt-4o-mini', name: 'GPT-4o Mini', description: 'Rápido & eficiente', price: '$0.15 / $0.60' },
+            { id: 'gpt-4-turbo', name: 'GPT-4 Turbo', description: 'Alta capacidade', price: '$10 / $30' },
         ]
     },
 ] as const;

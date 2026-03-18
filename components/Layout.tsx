@@ -262,13 +262,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
         <nav className={`flex-1 p-4 space-y-2 flex flex-col ${sidebarCollapsed ? 'items-center px-2' : ''}`} aria-label="Navegação do sistema">
           {[
-            { to: '/inbox', icon: Inbox, label: 'Inbox', prefetch: 'inbox' as const },
             { to: '/dashboard', icon: LayoutDashboard, label: 'Visão Geral', prefetch: 'dashboard' as const },
-            { to: '/boards', icon: KanbanSquare, label: 'Boards', prefetch: 'boards' as const },
             { to: '/contacts', icon: Users, label: 'Contatos', prefetch: 'contacts' as const },
             { to: '/whatsapp', icon: MessageSquare, label: 'WhatsApp', prefetch: 'whatsapp' as const },
-            { to: '/activities', icon: CheckSquare, label: 'Atividades', prefetch: 'activities' as const },
-            { to: '/reports', icon: BarChart3, label: 'Relatórios', prefetch: 'reports' as const },
             { to: '/settings', icon: Settings, label: 'Configurações', prefetch: 'settings' as const },
           ].map((item) => {
             if (sidebarCollapsed) {
