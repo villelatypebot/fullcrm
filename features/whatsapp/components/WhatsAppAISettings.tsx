@@ -61,6 +61,11 @@ export function WhatsAppAISettings() {
     smart_pause_enabled: true,
     follow_up_default_delay_minutes: 30,
     follow_up_max_per_conversation: 3,
+    follow_up_sequence: [
+      { delay_minutes: 30, label: 'Primeiro contato' },
+      { delay_minutes: 60, label: 'Segundo contato' },
+      { delay_minutes: 180, label: 'Terceiro contato' },
+    ] as Array<{ delay_minutes: number; label: string }>,
   });
 
   // Sync form from config
@@ -92,6 +97,11 @@ export function WhatsAppAISettings() {
         smart_pause_enabled: config.smart_pause_enabled ?? true,
         follow_up_default_delay_minutes: config.follow_up_default_delay_minutes ?? 30,
         follow_up_max_per_conversation: config.follow_up_max_per_conversation ?? 3,
+        follow_up_sequence: (config.follow_up_sequence as Array<{ delay_minutes: number; label: string }>) ?? [
+          { delay_minutes: 30, label: 'Primeiro contato' },
+          { delay_minutes: 60, label: 'Segundo contato' },
+          { delay_minutes: 180, label: 'Terceiro contato' },
+        ],
       });
     }
   }, [config]);
@@ -451,20 +461,66 @@ export function WhatsAppAISettings() {
             </label>
 
             {form.follow_up_enabled && (
-              <div className="grid sm:grid-cols-2 gap-4 ml-7">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Delay padrão (min)
-                  </label>
-                  <input
-                    type="number"
-                    min={5}
-                    max={1440}
-                    value={form.follow_up_default_delay_minutes}
-                    onChange={(e) => setForm({ ...form, follow_up_default_delay_minutes: Number(e.target.value) || 30 })}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-dark-bg text-slate-900 dark:text-white text-sm"
-                  />
+              <div className="ml-7 space-y-3">
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Sequência de follow-ups
+                </label>
+                <div className="space-y-2">
+                  {(form.follow_up_sequence || []).map((step, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <span className="text-xs text-slate-500 w-5">{idx + 1}.</span>
+                      <input
+                        type="text"
+                        value={step.label}
+                        onChange={(e) => {
+                          const seq = [...(form.follow_up_sequence || [])];
+                          seq[idx] = { ...seq[idx], label: e.target.value };
+                          setForm({ ...form, follow_up_sequence: seq });
+                        }}
+                        placeholder="Nome da etapa"
+                        className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-dark-bg text-slate-900 dark:text-white text-sm"
+                      />
+                      <input
+                        type="number"
+                        min={5}
+                        max={1440}
+                        value={step.delay_minutes}
+                        onChange={(e) => {
+                          const seq = [...(form.follow_up_sequence || [])];
+                          seq[idx] = { ...seq[idx], delay_minutes: Number(e.target.value) || 30 };
+                          setForm({ ...form, follow_up_sequence: seq });
+                        }}
+                        className="w-20 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-dark-bg text-slate-900 dark:text-white text-sm"
+                      />
+                      <span className="text-xs text-slate-500">min</span>
+                      {(form.follow_up_sequence || []).length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const seq = (form.follow_up_sequence || []).filter((_, i) => i !== idx);
+                            setForm({ ...form, follow_up_sequence: seq });
+                          }}
+                          className="text-red-400 hover:text-red-600 text-xs px-1"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  ))}
                 </div>
+                {(form.follow_up_sequence || []).length < 5 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const seq = [...(form.follow_up_sequence || [])];
+                      seq.push({ delay_minutes: 60, label: `Etapa ${seq.length + 1}` });
+                      setForm({ ...form, follow_up_sequence: seq });
+                    }}
+                    className="text-xs text-violet-500 hover:text-violet-400 font-medium"
+                  >
+                    + Adicionar etapa
+                  </button>
+                )}
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
                     Máx. follow-ups/conversa

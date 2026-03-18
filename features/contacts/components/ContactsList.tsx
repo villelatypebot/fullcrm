@@ -1,5 +1,5 @@
 import React from 'react';
-import { Building2, Mail, Phone, Plus, Calendar, Pencil, Trash2, Globe, MoreHorizontal, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Building2, Mail, Phone, Plus, Calendar, Pencil, Trash2, Globe, MoreHorizontal, ArrowUpDown, ArrowUp, ArrowDown, Thermometer } from 'lucide-react';
 import { Contact, Company, ContactSortableColumn } from '@/types';
 import { StageBadge } from './ContactsStageTabs';
 
@@ -90,6 +90,28 @@ interface ContactsListProps {
     sortOrder?: 'asc' | 'desc';
     onSort?: (column: ContactSortableColumn) => void;
 }
+
+const TEMPERATURE_CONFIG: Record<string, { label: string; color: string }> = {
+    cold: { label: 'Frio', color: 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-500/10 dark:text-blue-400 dark:border-blue-500/20' },
+    warm: { label: 'Morno', color: 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-500/10 dark:text-yellow-400 dark:border-yellow-500/20' },
+    hot: { label: 'Quente', color: 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-500/10 dark:text-orange-400 dark:border-orange-500/20' },
+    on_fire: { label: 'On Fire', color: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-500/10 dark:text-red-400 dark:border-red-500/20' },
+};
+
+const TemperatureBadge: React.FC<{ temperature?: string; score?: number }> = ({ temperature, score }) => {
+    const config = TEMPERATURE_CONFIG[temperature || 'cold'] || TEMPERATURE_CONFIG.cold;
+    return (
+        <div className="flex items-center gap-1.5">
+            <Thermometer size={14} className="text-slate-400" />
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${config.color}`}>
+                {config.label}
+            </span>
+            {typeof score === 'number' && score > 0 && (
+                <span className="text-[10px] text-slate-500 dark:text-slate-400">{score}</span>
+            )}
+        </div>
+    );
+};
 
 /**
  * Componente React `ContactsList`.
@@ -196,6 +218,7 @@ export const ContactsList: React.FC<ContactsListProps> = ({
                                     <th scope="col" className="px-6 py-4 font-bold text-slate-700 dark:text-slate-200 font-display text-xs uppercase tracking-wider">Nome</th>
                                 )}
                                 <th scope="col" className="px-6 py-4 font-bold text-slate-700 dark:text-slate-200 font-display text-xs uppercase tracking-wider">Estágio</th>
+                                <th scope="col" className="px-6 py-4 font-bold text-slate-700 dark:text-slate-200 font-display text-xs uppercase tracking-wider">Temp.</th>
                                 <th scope="col" className="px-6 py-4 font-bold text-slate-700 dark:text-slate-200 font-display text-xs uppercase tracking-wider">Cargo / Empresa</th>
                                 <th scope="col" className="px-6 py-4 font-bold text-slate-700 dark:text-slate-200 font-display text-xs uppercase tracking-wider">Contato</th>
                                 <th scope="col" className="px-6 py-4 font-bold text-slate-700 dark:text-slate-200 font-display text-xs uppercase tracking-wider">Status</th>
@@ -242,6 +265,9 @@ export const ContactsList: React.FC<ContactsListProps> = ({
                                     </td>
                                     <td className="px-6 py-4">
                                         <StageBadge stage={contact.stage} />
+                                    </td>
+                                    <td className="px-6 py-4">
+                                        <TemperatureBadge temperature={contact.temperature} score={contact.leadScore} />
                                     </td>
                                     <td className="px-6 py-4">
                                         <div>

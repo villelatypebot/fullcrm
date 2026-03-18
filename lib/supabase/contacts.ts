@@ -67,6 +67,12 @@ export interface DbContact {
   updated_at: string;
   /** ID do dono/responsável. */
   owner_id: string | null;
+  /** Temperatura do lead (cold, warm, hot, on_fire). */
+  temperature: string | null;
+  /** Pontuação do lead. */
+  lead_score: number | null;
+  /** Estágio de compra (awareness, interest, consideration, decision). */
+  buying_stage: string | null;
 }
 
 /**
@@ -119,6 +125,9 @@ const transformContact = (db: DbContact): Contact => ({
   totalValue: db.total_value || 0,
   createdAt: db.created_at,
   updatedAt: db.updated_at,
+  temperature: db.temperature || undefined,
+  leadScore: db.lead_score ?? undefined,
+  buyingStage: db.buying_stage || undefined,
 });
 
 /**
@@ -165,6 +174,9 @@ const transformContactToDb = (contact: Partial<Contact>): Partial<DbContact> => 
   if (contact.lastInteraction !== undefined) db.last_interaction = contact.lastInteraction || null;
   if (contact.lastPurchaseDate !== undefined) db.last_purchase_date = contact.lastPurchaseDate || null;
   if (contact.totalValue !== undefined) db.total_value = contact.totalValue;
+  if (contact.temperature !== undefined) db.temperature = contact.temperature || null;
+  if (contact.leadScore !== undefined) db.lead_score = contact.leadScore ?? null;
+  if (contact.buyingStage !== undefined) db.buying_stage = contact.buyingStage || null;
 
   return db;
 };

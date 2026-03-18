@@ -169,6 +169,11 @@ export interface Contact {
   createdAt: string;
   updatedAt?: string; // Última modificação do registro
 
+  // WhatsApp intelligence fields (synced from whatsapp_lead_scores)
+  temperature?: string; // cold | warm | hot | on_fire
+  leadScore?: number;
+  buyingStage?: string;
+
   // @deprecated - Use clientCompanyId instead
   companyId?: string;
 }
