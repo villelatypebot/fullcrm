@@ -3,9 +3,7 @@ import { ContactStage } from '@/types';
 import { Users, UserCheck, Handshake, Crown, Archive } from 'lucide-react';
 
 interface StageCounts {
-  LEAD: number;
-  MQL: number;
-  PROSPECT: number;
+  INTERESTED: number;
   CUSTOMER: number;
   OTHER: number;
 }
@@ -17,26 +15,12 @@ interface ContactsStageTabs {
 }
 
 const STAGE_CONFIG = {
-  LEAD: {
-    label: 'Leads',
+  INTERESTED: {
+    label: 'Interessados',
     icon: Users,
-    color: 'bg-slate-500',
-    activeColor:
-      'bg-slate-100 dark:bg-slate-500/20 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-500/30',
-  },
-  MQL: {
-    label: 'MQL',
-    icon: UserCheck,
     color: 'bg-blue-500',
     activeColor:
       'bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-500/30',
-  },
-  PROSPECT: {
-    label: 'Prospects',
-    icon: Handshake,
-    color: 'bg-purple-500',
-    activeColor:
-      'bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-500/30',
   },
   CUSTOMER: {
     label: 'Clientes',
@@ -73,7 +57,7 @@ export const ContactsStageTabs: React.FC<ContactsStageTabs> = ({
   onStageChange,
   counts,
 }) => {
-  const total = counts.LEAD + counts.MQL + counts.PROSPECT + counts.CUSTOMER + (counts.OTHER || 0);
+  const total = counts.INTERESTED + counts.CUSTOMER + (counts.OTHER || 0);
 
   return (
     <div className="flex items-center gap-2 flex-wrap">

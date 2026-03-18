@@ -1,6 +1,6 @@
 import React, { useId, useState } from 'react';
 import { X } from 'lucide-react';
-import { Contact } from '@/types';
+import { Contact, ContactStage } from '@/types';
 import { DebugFillButton } from '@/components/debug/DebugFillButton';
 import { fakeContact } from '@/lib/debug';
 import { FocusTrap, useFocusReturn } from '@/lib/a11y';
@@ -11,6 +11,7 @@ interface ContactFormData {
   phone: string;
   role: string;
   companyName: string;
+  stage: ContactStage;
 }
 
 interface ContactFormModalProps {
@@ -68,6 +69,7 @@ export const ContactFormModal: React.FC<ContactFormModalProps> = ({
       phone: fake.phone,
       role: fake.role,
       companyName: fake.companyName,
+      stage: ContactStage.INTERESTED,
     });
   };
 
@@ -140,6 +142,19 @@ export const ContactFormModal: React.FC<ContactFormModalProps> = ({
               value={formData.email}
               onChange={e => setFormData({ ...formData, email: e.target.value })}
             />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Estágio no Funil</label>
+            <select
+              required
+              className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary-500"
+              value={formData.stage}
+              onChange={e => setFormData({ ...formData, stage: e.target.value as ContactStage })}
+            >
+              <option value="INTERESTED">Interessado</option>
+              <option value="CUSTOMER">Cliente</option>
+              <option value="OTHER">Outros / Perdidos</option>
+            </select>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>

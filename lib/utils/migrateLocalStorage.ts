@@ -60,7 +60,7 @@ export const migrateLocalStorage = () => {
         role: lead.role,
         source: lead.source,
         status: 'ACTIVE',
-        stage: ContactStage.LEAD, // Define como LEAD no funil
+        stage: ContactStage.INTERESTED, // Define como LEAD no funil
         createdAt: lead.createdAt,
         notes: lead.notes,
         lastPurchaseDate: '',
@@ -84,7 +84,7 @@ export const migrateLocalStorage = () => {
         id: 'default-sales',
         name: 'Pipeline de Vendas',
         description: 'Funil principal de oportunidades',
-        linkedStage: ContactStage.PROSPECT,
+        linkedStage: ContactStage.INTERESTED,
         stages: DEFAULT_BOARD_STAGES,
         isDefault: true,
         createdAt: new Date().toISOString()

@@ -4,10 +4,8 @@ import { useCRM } from '@/context/CRMContext';
 import { useToast } from '@/context/ToastContext';
 import { TrendingUp, TrendingDown, Users, DollarSign, Target, Clock, MoreVertical, AlertTriangle } from 'lucide-react';
 import { StatCard } from './components/StatCard';
-import { ActivityFeedItem } from './components/ActivityFeedItem';
 import { PipelineAlertsModal } from './components/PipelineAlertsModal';
-import { useDashboardMetrics, PeriodFilter, COMPARISON_LABELS } from './hooks/useDashboardMetrics';
-import { PeriodFilterSelect } from '@/components/filters/PeriodFilterSelect';
+import { useDashboardMetrics } from './hooks/useDashboardMetrics';
 import { LazyFunnelChart, ChartWrapper } from '@/components/charts';
 
 
@@ -31,17 +29,8 @@ const DashboardPage: React.FC = () => {
   const router = useRouter();
   const { activities, lifecycleStages, contacts, boards } = useCRM();
   const { addToast } = useToast();
-  const [period, setPeriod] = useState<PeriodFilter>('this_month');
+  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [showPipelineAlerts, setShowPipelineAlerts] = useState(false);
-  const [selectedBoardId, setSelectedBoardId] = useState<string>('');
-
-  // Inicializar board selecionado
-  useEffect(() => {
-    if (!selectedBoardId && boards.length > 0) {
-      const defaultB = boards.find(b => b.isDefault) || boards[0];
-      setSelectedBoardId(defaultB.id);
-    }
-  }, [boards, selectedBoardId]);
 
   // Calcular contagem de contatos por estágio de ciclo de vida
   const stageCounts = React.useMemo(() => {
@@ -59,40 +48,24 @@ const DashboardPage: React.FC = () => {
   }, []);
 
   const {
-    deals,
-    wonDeals,
-    wonRevenue,
+    isLoading,
+    conversationsCount,
     winRate,
-    pipelineValue,
-    topDeals,
+    coldLeadsCount,
+    interestedAndClientsCount,
+    wonRevenue,
     funnelData,
-    trendData,
-    activePercent,
-    inactivePercent,
-    churnedPercent,
-    activeContacts,
-    inactiveContacts,
-    churnedContacts,
+    avgTicket,
+    activeContactsCount,
+    stoppedContactsCount,
+    leadsInFollowUpCount,
+    activeSnapshotDeals,
     riskyCount,
     stagnantDealsCount,
-    stagnantDealsValue,
-    avgLTV,
-    avgSalesCycle,
-    fastestDeal,
-    slowestDeal,
-    actualWinRate,
-    lostDeals,
-    topLossReasons,
-    wonDealsWithDates,
-    changes,
-    activeSnapshotDeals,
-  } = useDashboardMetrics(period, selectedBoardId);
+  } = useDashboardMetrics(selectedDate);
 
   // Formatar variações para exibição
-  const pipelineChangeInfo = formatChange(changes.pipeline);
-  const dealsChangeInfo = formatChange(changes.deals);
-  const winRateChangeInfo = formatChange(changes.winRate);
-  const revenueChangeInfo = formatChange(changes.revenue);
+  // Variações removidas por simplicidade na nova view diária
 
   return (
     <div className="flex flex-col h-[calc(100vh-7rem)] space-y-4">
@@ -106,18 +79,12 @@ const DashboardPage: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <select
-            value={selectedBoardId}
-            onChange={(e) => setSelectedBoardId(e.target.value)}
-            aria-label="Selecionar Pipeline de Vendas"
+          <input
+            type="date"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
             className="px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-primary-500"
-          >
-            {boards.map(board => (
-              <option key={board.id} value={board.id}>{board.name}</option>
-            ))}
-          </select>
-
-          <PeriodFilterSelect value={period} onChange={setPeriod} />
+          />
 
           <button
             onClick={() => setShowPipelineAlerts(true)}
@@ -141,52 +108,52 @@ const DashboardPage: React.FC = () => {
       {/* KPI Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 shrink-0">
         <StatCard
-          title="Pipeline Total"
-          value={`$${pipelineValue.toLocaleString()}`}
-          subtext={pipelineChangeInfo.text}
-          subtextPositive={pipelineChangeInfo.isPositive}
-          icon={DollarSign}
-          color="bg-blue-500"
-          onClick={() => router.push('/boards')}
-          comparisonLabel={COMPARISON_LABELS[period]}
-        />
-        <StatCard
-          title="Negócios Ativos"
-          value={`${deals.length - wonDeals.length}`}
-          subtext={dealsChangeInfo.text}
-          subtextPositive={dealsChangeInfo.isPositive}
+          title="Conversas (Dia)"
+          value={conversationsCount.toString()}
+          subtext=""
           icon={Users}
-          color="bg-purple-500"
-          onClick={() => router.push('/boards?status=open')}
-          comparisonLabel={COMPARISON_LABELS[period]}
+          color="bg-blue-500"
+          onClick={() => {}}
         />
         <StatCard
           title="Conversão"
           value={`${winRate.toFixed(1)}%`}
-          subtext={winRateChangeInfo.text}
-          subtextPositive={winRateChangeInfo.isPositive}
+          subtext=""
           icon={Target}
           color="bg-emerald-500"
-          onClick={() => router.push('/reports')}
-          comparisonLabel={COMPARISON_LABELS[period]}
+          onClick={() => {}}
+        />
+        <StatCard
+          title="Leads Frios"
+          value={coldLeadsCount.toString()}
+          subtext=""
+          icon={TrendingDown}
+          color="bg-slate-500"
+          onClick={() => router.push('/contacts?stage=ALL')}
+        />
+        <StatCard
+          title="Interessados & Clientes"
+          value={interestedAndClientsCount.toString()}
+          subtext=""
+          icon={Users}
+          color="bg-purple-500"
+          onClick={() => router.push('/contacts?stage=INTERESTED')}
         />
         <StatCard
           title="Receita (Ganha)"
           value={`$${wonRevenue.toLocaleString()}`}
-          subtext={revenueChangeInfo.text}
-          subtextPositive={revenueChangeInfo.isPositive}
+          subtext=""
           icon={TrendingUp}
           color="bg-orange-500"
-          onClick={() => router.push('/boards?status=won&view=list')}
-          comparisonLabel={COMPARISON_LABELS[period]}
+          onClick={() => {}}
         />
       </div>
 
-      {/* Wallet Health Section - Compact */}
+      {/* Pipeline Distribution Section - Compact */}
       <div className="space-y-3 shrink-0">
         <h2 className="text-lg font-bold text-slate-900 dark:text-white font-display flex items-center gap-2">
-          <Users className="text-primary-500" size={20} />
-          Saúde da Carteira
+          <Target className="text-primary-500" size={20} />
+          Distribuição do Pipeline
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div
@@ -194,45 +161,17 @@ const DashboardPage: React.FC = () => {
             onClick={() => router.push('/contacts')}
           >
             <h3 className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-2">
-              Distribuição da Carteira
+              Status do Funil
             </h3>
-            <div className="flex items-end gap-2 mb-2">
-              <span className="text-2xl font-bold text-slate-900 dark:text-white">
-                {activePercent}%
-              </span>
-              <span className="text-xs text-green-500 font-bold mb-1">Ativos</span>
-            </div>
-            <div className="w-full bg-slate-100 dark:bg-white/10 rounded-full h-2 overflow-hidden flex">
-              <div
-                className="bg-green-500 h-full"
-                style={{ width: `${activePercent}%` }}
-                title="Ativos"
-              ></div>
-              <div
-                className="bg-yellow-500 h-full"
-                style={{ width: `${inactivePercent}%` }}
-                title="Inativos"
-              ></div>
-              <div
-                className="bg-red-500 h-full"
-                style={{ width: `${churnedPercent}%` }}
-                title="Churn"
-              ></div>
-            </div>
-            <div className="flex justify-between mt-2 text-xs text-slate-500">
-              <div className="flex items-center gap-1">
-                <div className="w-2 h-2 rounded-full bg-green-500"></div> Ativos (
-                {activeContacts.length})
+            <div className="flex justify-between mt-2 text-sm text-slate-700 dark:text-slate-200 font-medium">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-green-500"></div> Em Andamento: {activeContactsCount}
               </div>
-              <div className="flex items-center gap-1">
-                <div className="w-2 h-2 rounded-full bg-yellow-500"></div> Inativos (
-                {inactiveContacts.length})
-              </div>
-              <div className="flex items-center gap-1">
-                <div className="w-2 h-2 rounded-full bg-red-500"></div> Churn (
-                {churnedContacts.length})
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-red-500"></div> Parados: {stoppedContactsCount}
               </div>
             </div>
+            <p className="text-xs text-slate-500 mt-3">Distribuição entre contatos que continuam avançando vs. os que estão estagnados.</p>
           </div>
 
           <div
@@ -240,46 +179,42 @@ const DashboardPage: React.FC = () => {
             onClick={() => setShowPipelineAlerts(true)}
           >
             <h3 className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-2">
-              Negócios Parados
+              Leads em Follow Up
             </h3>
             <div className="flex items-end gap-2">
               <span className="text-2xl font-bold text-slate-900 dark:text-white">
-                {stagnantDealsCount} Deals
+                {leadsInFollowUpCount} Leads
               </span>
-              <span className={`text-xs font-bold mb-1 ${stagnantDealsCount > 0 ? 'text-amber-500' : 'text-green-500'}`}>
-                {stagnantDealsCount > 0 ? 'Atenção' : 'OK'}
+              <span className={`text-xs font-bold mb-1 ${leadsInFollowUpCount > 0 ? 'text-amber-500' : 'text-slate-500'}`}>
+                Ativos
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-2">
-              Sem mudança de estágio há +10 dias.
-            </p>
-            <p className="text-xs text-slate-400 mt-1">
-              ${stagnantDealsValue.toLocaleString()} em risco
+              Leads que estão atualmente em um fluxo de follow up.
             </p>
           </div>
 
           <div className="glass p-5 rounded-xl border border-slate-200 dark:border-white/5 shadow-sm">
             <h3 className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-2">
-              LTV Médio
+              Ticket Médio
             </h3>
             <div className="flex items-end gap-2">
               <span className="text-2xl font-bold text-slate-900 dark:text-white">
-                ${(avgLTV / 1000).toFixed(1)}k
+                ${avgTicket.toLocaleString()}
               </span>
               <span className="text-xs text-green-500 font-bold mb-1">Médio</span>
             </div>
-            <p className="text-xs text-slate-500 mt-2">Valor médio vitalício por cliente ativo.</p>
+            <p className="text-xs text-slate-500 mt-2">Valor médio baseado nas reservas (Receita / Reservas Feitas).</p>
           </div>
         </div>
       </div>
 
-      {/* Auto-Resize Bottom Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-[300px]">
+      <div className="grid grid-cols-1 lg:grid-cols-1 gap-6 flex-1 min-h-[300px]">
         {/* Funnel */}
-        <div className="glass p-5 rounded-xl border border-slate-200 dark:border-white/5 shadow-sm flex flex-col h-full">
+        <div className="glass p-5 rounded-xl border border-slate-200 dark:border-white/5 shadow-sm flex flex-col h-full w-full max-w-4xl mx-auto">
           <div className="flex justify-between items-center mb-2 shrink-0">
             <h2 className="text-lg font-bold text-slate-900 dark:text-white font-display">
-              Funil
+              Funil de Vendas & Reservas
             </h2>
           </div>
           <div className="flex-1 min-h-0 relative">
@@ -288,39 +223,6 @@ const DashboardPage: React.FC = () => {
                 <LazyFunnelChart data={funnelData} />
               </ChartWrapper>
             </div>
-          </div>
-        </div>
-
-        {/* Activity Feed - Expanded */}
-        <div className="lg:col-span-2 glass flex flex-col rounded-xl border border-slate-200 dark:border-white/5 shadow-sm overflow-hidden h-full">
-          <div className="p-5 border-b border-slate-100 dark:border-white/5 bg-white/50 dark:bg-slate-900/50 rounded-t-xl backdrop-blur-sm z-10 shrink-0">
-            <div className="flex justify-between items-center">
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white font-display">
-                Atividades Recentes
-              </h2>
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-5 pt-2 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700">
-            <div className="space-y-1">
-              {activities.length > 0 ? (
-                activities.slice(0, 15).map(activity => (
-                  <ActivityFeedItem key={activity.id} activity={activity} />
-                ))
-              ) : (
-                <div className="flex flex-col items-center justify-center h-full text-slate-500 py-8">
-                  <Clock size={32} className="mb-2 opacity-50" />
-                  <p className="text-sm">Nenhuma atividade recente.</p>
-                </div>
-              )}
-            </div>
-
-            <button
-              onClick={() => router.push('/activities')}
-              className="w-full mt-4 py-2 text-sm text-primary-500 border border-dashed border-primary-500/30 rounded-lg hover:bg-primary-50 dark:hover:bg-primary-500/10 transition-colors"
-            >
-              Ver todas as atividades
-            </button>
           </div>
         </div>
       </div>

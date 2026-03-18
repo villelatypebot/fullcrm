@@ -82,10 +82,9 @@ export interface LifecycleStage {
 // Estágio do Contato no Funil de Carteira
 // @deprecated - Use LifecycleStage IDs (strings)
 export enum ContactStage {
-  LEAD = 'LEAD', // Suspeito - ainda não qualificado
-  MQL = 'MQL', // Marketing Qualified Lead
-  PROSPECT = 'PROSPECT', // Em negociação ativa
-  CUSTOMER = 'CUSTOMER', // Cliente fechado
+  INTERESTED = 'INTERESTED',
+  CUSTOMER = 'CUSTOMER',
+  OTHER = 'OTHER',
 }
 
 // @deprecated - Use Contact com stage: ContactStage.LEAD
@@ -356,13 +355,13 @@ export const DEFAULT_BOARD_STAGES: BoardStage[] = [
     id: DealStatus.PROPOSAL,
     label: 'Proposta',
     color: 'bg-purple-500',
-    linkedLifecycleStage: ContactStage.PROSPECT,
+    linkedLifecycleStage: ContactStage.INTERESTED,
   },
   {
     id: DealStatus.NEGOTIATION,
     label: 'Negociação',
     color: 'bg-orange-500',
-    linkedLifecycleStage: ContactStage.PROSPECT,
+    linkedLifecycleStage: ContactStage.INTERESTED,
   },
   {
     id: DealStatus.CLOSED_WON,

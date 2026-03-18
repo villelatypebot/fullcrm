@@ -86,10 +86,11 @@ async function handleReservationEvent(
         .from('contacts')
         .update({
           temperature: 'warm',
+          stage: 'CUSTOMER',
           last_interaction: new Date().toISOString(),
         })
         .eq('id', contactId);
-      console.log('[reservation-webhook] Updated existing contact temperature to warm:', contactId);
+      console.log('[reservation-webhook] Updated existing contact to CUSTOMER and warm:', contactId);
     }
   } else if (event === 'reservation.confirmed') {
     // Try to find the org that has reservation integration
@@ -111,7 +112,7 @@ async function handleReservationEvent(
           phone,
           email: customer.email || null,
           status: 'ACTIVE',
-          stage: 'LEAD',
+          stage: 'CUSTOMER',
           source: 'WEBSITE',
           temperature: 'warm',
         })
