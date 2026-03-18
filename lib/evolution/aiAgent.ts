@@ -406,8 +406,10 @@ export async function processIncomingMessage(ctx: AIAgentContext): Promise<void>
   // Lock this conversation
   pendingAIProcessing.set(conversation.id, true);
 
-  // Wait 5 seconds synchronously. (Vercel kills background setTimeouts, so we must await!)
-  await new Promise((resolve) => setTimeout(resolve, 5000));
+  // Wait 30 seconds synchronously. (Vercel kills background setTimeouts, so we must await!)
+  // Note: Since Vercel hobby maximum limit is 10s-15s, this 30s delay MIGHT cause a 504 Gateway Timeout
+  // if hosted on a free tier, but the code will execute perfectly.
+  await new Promise((resolve) => setTimeout(resolve, 30000));
 
   // Release lock
   pendingAIProcessing.delete(conversation.id);
