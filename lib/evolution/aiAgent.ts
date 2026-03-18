@@ -211,9 +211,8 @@ async function generateAIResponse(
     `Tom: ${config.agent_tone}`,
     '',
     'REGRAS:',
-    '- Responda APENAS em texto simples (sem markdown, sem HTML)',
-    '- Seja conciso: mensagens de WhatsApp devem ser curtas',
-    '- Maximo de 3 paragrafos curtos por resposta',
+    '- Responda APENAS em texto simples (sem formatação, asteriscos ou emojis em excesso)',
+    '- Seja conciso, mas divida bem o texto: QUEBRE sua resposta em 2 ou 3 parágrafos curtos. NUNCA envie um "blocão" único de texto',
     '- Se nao souber a resposta, informe que ira encaminhar para um atendente',
     '- Nunca invente informacoes sobre produtos ou precos',
     '- USE AS MEMORIAS DO CONTATO para personalizar a conversa',
@@ -387,13 +386,40 @@ async function autoCreateDeal(
 // MAIN ENTRY POINT
 // =============================================================================
 
+const pendingAIProcessing = new Map<string, NodeJS.Timeout>();
+
 export async function processIncomingMessage(ctx: AIAgentContext): Promise<void> {
-  const { supabase, conversation, instance, incomingMessage } = ctx;
+  const { supabase, conversation, instance } = ctx;
 
   const config = await getAIConfig(supabase, instance.id);
   if (!config) return;
 
   if (!conversation.ai_active) return;
+
+  // -- BATCHING ENGINE (60 seconds debounce) --
+  if (pendingAIProcessing.has(conversation.id)) {
+    clearTimeout(pendingAIProcessing.get(conversation.id)!);
+  }
+
+  pendingAIProcessing.set(conversation.id, setTimeout(() => {
+    pendingAIProcessing.delete(conversation.id);
+    
+    // Fetch the freshest conversation details because unread_count might have changed
+    supabase
+      .from('whatsapp_conversations')
+      .select('*')
+      .eq('id', conversation.id)
+      .single()
+      .then(({ data: freshConv }) => {
+        if (freshConv && freshConv.ai_active) {
+           _executeAIAfterBatch(ctx, freshConv as WhatsAppConversation, config).catch(e => console.error('[ai-agent] Batch execution failed:', e));
+        }
+      });
+  }, 60000));
+}
+
+async function _executeAIAfterBatch(ctx: AIAgentContext, conversation: WhatsAppConversation, config: WhatsAppAIConfig): Promise<void> {
+  const { supabase, instance } = ctx;
 
   // Check working hours
   if (!isWithinWorkingHours(config)) {
@@ -445,7 +471,17 @@ export async function processIncomingMessage(ctx: AIAgentContext): Promise<void>
   // INTELLIGENCE ENGINE - The magic happens here
   // =========================================================================
 
-  const incomingText = incomingMessage.text_body || '';
+  // Fetch all unread messages from the customer to form the complete "incomingText"
+  const { data: recentMsgs } = await supabase
+    .from('whatsapp_messages')
+    .select('text_body')
+    .eq('conversation_id', conversation.id)
+    .eq('from_me', false)
+    .order('created_at', { ascending: false })
+    .limit(conversation.unread_count || 1);
+
+  // Group multiple messages safely into a single conceptual paragraph for the AI
+  const incomingText = recentMsgs ? recentMsgs.reverse().map(m => m.text_body).filter(Boolean).join('\n') : '';
 
   // Only run intelligence on text messages
   if (incomingText) {
@@ -469,7 +505,7 @@ export async function processIncomingMessage(ctx: AIAgentContext): Promise<void>
         instance.organization_id,
         contactId ?? undefined,
         intelligence.memories,
-        incomingMessage.id,
+        ctx.incomingMessage.id, // Fallback pointing to the trigger message
       );
 
       await insertAILog(supabase, {
@@ -477,7 +513,7 @@ export async function processIncomingMessage(ctx: AIAgentContext): Promise<void>
         organization_id: instance.organization_id,
         action: 'memory_extracted',
         details: { count: intelligence.memories.length, keys: intelligence.memories.map((m) => m.key) },
-        message_id: incomingMessage.id,
+        message_id: ctx.incomingMessage.id,
         triggered_by: 'ai',
       });
     }
@@ -574,7 +610,7 @@ export async function processIncomingMessage(ctx: AIAgentContext): Promise<void>
             total_steps: maxFollowUps,
           },
           original_customer_message: incomingText,
-          original_message_id: incomingMessage.id,
+          original_message_id: ctx.incomingMessage.id,
         });
 
         await insertAILog(supabase, {
@@ -588,7 +624,7 @@ export async function processIncomingMessage(ctx: AIAgentContext): Promise<void>
             sequence_step: 0,
             total_steps: maxFollowUps,
           },
-          message_id: incomingMessage.id,
+          message_id: ctx.incomingMessage.id,
           triggered_by: 'ai',
         });
       }
@@ -669,7 +705,7 @@ export async function processIncomingMessage(ctx: AIAgentContext): Promise<void>
   }
 
   // Generate AI response with FULL context (memories included!)
-  const messageText = incomingMessage.text_body || `[Mensagem do tipo: ${incomingMessage.message_type}]`;
+  const messageText = incomingText || `[Mensagem combinada de arquivos]`;
 
   try {
     const aiResponse = await generateAIResponse(

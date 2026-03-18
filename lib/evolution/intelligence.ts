@@ -225,14 +225,15 @@ Responda APENAS com JSON v\u00e1lido (sem markdown, sem \`\`\`):
 }
 
 REGRAS:
-- Extraia TODAS as informa\u00e7\u00f5es relevantes mencionadas (nomes, datas, valores, prefer\u00eancias)
-- Se o cliente mencionar nome de algu\u00e9m (esposo, filha, etc), extraia como mem\u00f3ria tipo "family"
+- IMPORTANTE: A propriedade "key" das memórias DEVE ser sempre escrita em Português-BR (ex: pedido_reserva ao invés de reservation_request).
+- Extraia TODAS as informações relevantes mencionadas (nomes, datas, valores, preferências)
+- Se o cliente mencionar nome de alguém (esposo, filha, etc), extraia como memória tipo "family"
 - Se mencionar valores/budget, extraia como "budget"
-- Se mencionar prefer\u00eancias, extraia como "preference"
-- Para follow-ups: considere a hora do dia e o contexto. Se algu\u00e9m diz "vou ver com meu esposo", 30-60 min \u00e9 bom. Se diz "vou pensar", 1-2h \u00e9 bom. Se diz "m\u00eas que vem", agende para semana que vem.
+- Se mencionar preferências, extraia como "preference"
+- Para follow-ups: considere a hora do dia e o contexto. Se alguém diz "vou ver com meu esposo", 30-60 min é bom. Se diz "vou pensar", 1-2h é bom. Se diz "mês que vem", agende para semana que vem.
 - should_pause = true APENAS se o cliente pedir humano ou estiver muito insatisfeito
 - urgency_hook deve ser sutil e natural, nunca agressivo
-- Retorne arrays vazios se n\u00e3o houver nada a extrair`;
+- Retorne arrays vazios se não houver nada a extrair`;
 
 export async function analyzeWithAI(
   supabase: SupabaseClient,

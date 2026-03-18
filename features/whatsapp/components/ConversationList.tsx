@@ -52,6 +52,10 @@ export function ConversationList({ selectedId, onSelect, instanceId }: Conversat
         queryClient.invalidateQueries({
           queryKey: queryKeys.whatsappConversations.all,
         });
+        // Also invalidate messages to ensure the chat window forces a pull when a conversation goes unread/updated
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.whatsappMessages.all,
+        });
       })
       .subscribe();
 
