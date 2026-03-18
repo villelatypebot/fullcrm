@@ -197,21 +197,23 @@ async function handleMessageUpsert(
       .eq('organization_id', organizationId)
       .single();
 
-    // Process in background (don't block the webhook response)
-    processIncomingMessage({
-      supabase,
-      conversation,
-      instance: {
-        id: instanceDbId,
-        evolution_instance_name: (instance.evolution_instance_name as string) || (instance.instance_id as string),
-        instance_token: instance.instance_token as string,
-        organization_id: organizationId,
-        evolution_api_url: orgSettings?.evolution_api_url || '',
-      },
-      incomingMessage: insertedMessage,
-    }).catch((err) => {
+    // Process synchronously to keep Vercel lambda alive during the 5s debounce & LLM generation
+    try {
+      await processIncomingMessage({
+        supabase,
+        conversation,
+        instance: {
+          id: instanceDbId,
+          evolution_instance_name: (instance.evolution_instance_name as string) || (instance.instance_id as string),
+          instance_token: instance.instance_token as string,
+          organization_id: organizationId,
+          evolution_api_url: orgSettings?.evolution_api_url || '',
+        },
+        incomingMessage: insertedMessage,
+      });
+    } catch (err) {
       console.error('[whatsapp-ai-agent] Error processing message:', err);
-    });
+    }
   }
 }
 

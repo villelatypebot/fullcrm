@@ -386,7 +386,7 @@ async function autoCreateDeal(
 // MAIN ENTRY POINT
 // =============================================================================
 
-const pendingAIProcessing = new Map<string, NodeJS.Timeout>();
+const pendingAIProcessing = new Map<string, boolean>();
 
 export async function processIncomingMessage(ctx: AIAgentContext): Promise<void> {
   const { supabase, conversation, instance } = ctx;
@@ -396,26 +396,36 @@ export async function processIncomingMessage(ctx: AIAgentContext): Promise<void>
 
   if (!conversation.ai_active) return;
 
-  // -- BATCHING ENGINE (60 seconds debounce) --
+  // -- BATCHING ENGINE (Synchronous 5s Debounce for Vercel Serverless) --
+  // If a webhook is already waiting to process this conversation, we just exit this duplicate webhook early.
+  // The first webhook will collect ALL messages inserted during the wait time!
   if (pendingAIProcessing.has(conversation.id)) {
-    clearTimeout(pendingAIProcessing.get(conversation.id)!);
+    return;
   }
 
-  pendingAIProcessing.set(conversation.id, setTimeout(() => {
-    pendingAIProcessing.delete(conversation.id);
-    
-    // Fetch the freshest conversation details because unread_count might have changed
-    supabase
-      .from('whatsapp_conversations')
-      .select('*')
-      .eq('id', conversation.id)
-      .single()
-      .then(({ data: freshConv }) => {
-        if (freshConv && freshConv.ai_active) {
-           _executeAIAfterBatch(ctx, freshConv as WhatsAppConversation, config).catch(e => console.error('[ai-agent] Batch execution failed:', e));
-        }
-      });
-  }, 60000));
+  // Lock this conversation
+  pendingAIProcessing.set(conversation.id, true);
+
+  // Wait 5 seconds synchronously. (Vercel kills background setTimeouts, so we must await!)
+  await new Promise((resolve) => setTimeout(resolve, 5000));
+
+  // Release lock
+  pendingAIProcessing.delete(conversation.id);
+
+  // Fetch the freshest conversation details because unread_count likely changed from other fast messages
+  const { data: freshConv } = await supabase
+    .from('whatsapp_conversations')
+    .select('*')
+    .eq('id', conversation.id)
+    .single();
+
+  if (freshConv && freshConv.ai_active) {
+    try {
+      await _executeAIAfterBatch(ctx, freshConv as WhatsAppConversation, config);
+    } catch (e) {
+      console.error('[ai-agent] Batch execution failed:', e);
+    }
+  }
 }
 
 async function _executeAIAfterBatch(ctx: AIAgentContext, conversation: WhatsAppConversation, config: WhatsAppAIConfig): Promise<void> {
