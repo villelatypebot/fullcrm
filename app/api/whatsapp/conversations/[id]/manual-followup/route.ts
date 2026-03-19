@@ -8,10 +8,10 @@ export const maxDuration = 60;
 
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ conversationId: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { conversationId } = await params;
+    const { id: conversationId } = await params;
     
     // We expect the user to be authenticated
     const supabaseClient = await createClient();
@@ -52,7 +52,7 @@ export async function POST(
       .single();
 
     const { data: config } = await supabase
-      .from('whatsapp_ai_configs')
+      .from('whatsapp_ai_config')
       .select('*')
       .eq('instance_id', instance.id)
       .single();

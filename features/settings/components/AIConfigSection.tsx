@@ -29,6 +29,8 @@ const AI_PROVIDERS = [
         models: [
             { id: 'gpt-4o', name: 'GPT-4o', description: 'Recomendado - Mais Recente', price: '$2.50 / $10' },
             { id: 'gpt-4o-mini', name: 'GPT-4o Mini', description: 'Rápido & eficiente', price: '$0.15 / $0.60' },
+            { id: 'gpt-4.5-preview', name: 'GPT-4.5 Preview', description: 'Maior Inteligência', price: '$75 / $150' },
+            { id: 'o3-mini', name: 'o3-mini', description: 'Raciocínio Avançado', price: '$1.10 / $4.40' },
             { id: 'gpt-4-turbo', name: 'GPT-4 Turbo', description: 'Alta capacidade', price: '$10 / $30' },
         ]
     },

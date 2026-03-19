@@ -734,7 +734,7 @@ async function _executeAIAfterBatch(ctx: AIAgentContext, conversation: WhatsAppC
       historyString,
       crmContext,
       memoryContext,
-      (incomingMessage as any).text?.body || '',
+      incomingText || (incomingMessage as any).text_body || '',
       { phone: conversation.phone, name: conversation.contact_name || 'Cliente WhatsApp' }
     );
 
