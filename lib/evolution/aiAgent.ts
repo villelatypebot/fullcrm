@@ -812,7 +812,8 @@ async function sendAIReply(
     } as Parameters<typeof updateConversation>[2]);
 
     return msg;
-  } catch {
+  } catch (err) {
+    console.error('[ai-agent] sendAIReply FAILED for', conversation.phone, ':', err);
     return null;
   }
 }

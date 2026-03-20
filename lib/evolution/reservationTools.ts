@@ -1,10 +1,15 @@
-import { tool } from 'ai';
-import { z } from 'zod';
+import { jsonSchema } from 'ai';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createReservationClient } from '@/lib/reservations/client';
 
 /**
- * Retorna os Tools oficiais (Vercel AI SDK Core) para Agendamentos
+ * Retorna os Tools para Agendamentos no formato que generateText() realmente lê.
+ *
+ * BUG NO AI SDK v6: tool() armazena o schema em "parameters", mas generateText()
+ * lê "inputSchema". Resultado: o schema chega vazio ao OpenAI → type: "None".
+ *
+ * FIX: Construímos os tools manualmente com "inputSchema" + "execute".
+ * Quando o AI SDK corrigir isso, podemos voltar a usar tool().
  */
 export async function buildReservationTools(
   supabase: SupabaseClient,
@@ -15,22 +20,26 @@ export async function buildReservationTools(
   if (!client) return {};
 
   return {
-    check_availability: tool({
+    check_availability: {
+      type: 'function' as const,
       description: 'Consulta a disponibilidade exata de horários, vagas e lotações de uma unidade de reserva para uma data específica.',
-      parameters: z.object({
-        date: z.string().describe('Data da reserva solicitada no formato YYYY-MM-DD'),
+      inputSchema: jsonSchema<{ date: string }>({
+        type: 'object',
+        properties: {
+          date: { type: 'string', description: 'Data da reserva solicitada no formato YYYY-MM-DD' },
+        },
+        required: ['date'],
       }),
-      execute: async ({ date }: { date: string }): Promise<any> => {
+      execute: async ({ date }: { date: string }) => {
         try {
           const units = await client.getUnits();
           if (units.length === 0) return { available: false, message: 'Nenhuma unidade configurada' };
 
-          // We assume single-unit for this example to simplify the prompt interaction (or the first available unit)
           const targetUnit = units[0];
           const availability = await client.getAvailability(targetUnit.id, date);
 
           const availableSlots = availability.slots.filter(s => s.availablePax > 0);
-          
+
           if (availableSlots.length === 0) {
             return {
               available: false,
@@ -48,26 +57,30 @@ export async function buildReservationTools(
               available_pax_capacity: s.availablePax
             })),
           };
-        } catch (e: any) {
-          return { error: 'Falha ao consultar disponibilidade de banco de dados: ' + e.message };
+        } catch (e: unknown) {
+          return { error: 'Falha ao consultar disponibilidade: ' + (e instanceof Error ? e.message : String(e)) };
         }
       },
-    } as any),
+    },
 
-    create_reservation: tool({
+    create_reservation: {
+      type: 'function' as const,
       description: 'Agenda e finaliza uma reserva em nome do cliente. Certifique-se ANTES (chamando check_availability) de que o horário tem vagas (pax) o suficiente para o número pedido de pessoas.',
-      parameters: z.object({
-        unit_id: z.string().describe('ID da unidade em UUID retornado pelo check_availability'),
-        date: z.string().describe('Data da reserva no formato YYYY-MM-DD'),
-        time: z.string().describe('Horário exato da reserva no formato HH:MM (ex: 18:00)'),
-        pax: z.number().describe('Quantidade total de pessoas na mesa (pax)'),
+      inputSchema: jsonSchema<{ unit_id: string; date: string; time: string; pax: number }>({
+        type: 'object',
+        properties: {
+          unit_id: { type: 'string', description: 'ID da unidade em UUID retornado pelo check_availability' },
+          date: { type: 'string', description: 'Data da reserva no formato YYYY-MM-DD' },
+          time: { type: 'string', description: 'Horário exato da reserva no formato HH:MM (ex: 18:00)' },
+          pax: { type: 'number', description: 'Quantidade total de pessoas na mesa (pax)' },
+        },
+        required: ['unit_id', 'date', 'time', 'pax'],
       }),
-      execute: async ({ unit_id, date, time, pax }: { unit_id: string; date: string; time: string; pax: number }): Promise<any> => {
+      execute: async ({ unit_id, date, time, pax }: { unit_id: string; date: string; time: string; pax: number }) => {
         try {
-          // Check for capacity safely
           const availability = await client.getAvailability(unit_id, date);
           const requestedSlot = availability.slots.find(s => s.time.startsWith(time));
-          
+
           if (!requestedSlot || requestedSlot.availablePax < pax) {
              return { error: `Capacidade indisponível. Temos apenas ${requestedSlot?.availablePax || 0} vagas nesse horário.` };
           }
@@ -75,7 +88,7 @@ export async function buildReservationTools(
           const reservation = await client.createReservation({
             unitId: unit_id,
             date,
-            time: requestedSlot.time, // Enforce normalized DD:MM:SS
+            time: requestedSlot.time,
             pax,
             name: customerInfo.name || 'Cliente WhatsApp',
             phone: customerInfo.phone,
@@ -86,22 +99,27 @@ export async function buildReservationTools(
             message: 'A reserva foi efetuada e gravada com sucesso no sistema!',
             confirmation_code: reservation.confirmation_code,
           };
-        } catch (e: any) {
-          return { error: 'Falha durante o insert da reserva: ' + e.message };
+        } catch (e: unknown) {
+          return { error: 'Falha durante o insert da reserva: ' + (e instanceof Error ? e.message : String(e)) };
         }
       },
-    } as any),
+    },
 
-    lookup_reservation: tool({
+    lookup_reservation: {
+      type: 'function' as const,
       description: 'Busca os detalhes de uma reserva pelo código de confirmação alphanumérico.',
-      parameters: z.object({
-         code: z.string().describe('O código de confirmação da reserva. Ex: FH-A1B2C'),
+      inputSchema: jsonSchema<{ code: string }>({
+        type: 'object',
+        properties: {
+          code: { type: 'string', description: 'O código de confirmação da reserva. Ex: FH-A1B2C' },
+        },
+        required: ['code'],
       }),
-      execute: async ({ code }: { code: string }): Promise<any> => {
+      execute: async ({ code }: { code: string }) => {
         try {
           const reservation = await client.getByCode(code);
           if (!reservation) return { found: false, message: 'Reserva não encontrada.' };
-          
+
           return {
             found: true,
             status: reservation.status,
@@ -110,11 +128,11 @@ export async function buildReservationTools(
             pax: reservation.pax,
             linked_customer_id: reservation.customer_id
           };
-        } catch (e: any) {
-          return { error: 'Falha ao processar código: ' + e.message };
+        } catch (e: unknown) {
+          return { error: 'Falha ao processar código: ' + (e instanceof Error ? e.message : String(e)) };
         }
       }
-    } as any),
+    },
   };
 }
 
