@@ -394,17 +394,18 @@ async function autoCreateDeal(
 // =============================================================================
 
 export async function processIncomingMessage(ctx: AIAgentContext): Promise<void> {
-  const { supabase, conversation, instance } = ctx;
+  const { supabase, conversation, instance, incomingMessage } = ctx;
 
   const config = await getAIConfig(supabase, instance.id);
   if (!config) return;
 
   if (!conversation.ai_active) return;
 
-  // -- DEBOUNCE via last_message_at (works in Vercel Serverless) --
-  // Record the last_message_at BEFORE waiting. After waiting, check if it changed
-  // (meaning another message arrived). If so, let that newer webhook handle it.
-  const messageTimeBefore = conversation.last_message_at;
+  // -- DEBOUNCE via latest message ID --
+  // We save the ID of the message that triggered THIS webhook.
+  // After waiting, we check if a NEWER customer message arrived.
+  // If so, that newer webhook will handle processing — we bail out.
+  const triggerMessageId = incomingMessage.id;
 
   // Wait 5 seconds for message batching (short enough to stay within Vercel limits)
   await new Promise((resolve) => setTimeout(resolve, 5000));
@@ -418,8 +419,16 @@ export async function processIncomingMessage(ctx: AIAgentContext): Promise<void>
 
   if (!freshConv || !freshConv.ai_active) return;
 
-  // If last_message_at changed, another message arrived — that webhook will handle
-  if (freshConv.last_message_at !== messageTimeBefore) {
+  // Check if a newer customer message arrived after ours
+  const { data: newerMessages } = await supabase
+    .from('whatsapp_messages')
+    .select('id')
+    .eq('conversation_id', conversation.id)
+    .eq('from_me', false)
+    .gt('created_at', incomingMessage.created_at || new Date().toISOString())
+    .limit(1);
+
+  if (newerMessages && newerMessages.length > 0) {
     console.log('[ai-agent] Newer message arrived, deferring to its webhook', conversation.id);
     return;
   }
