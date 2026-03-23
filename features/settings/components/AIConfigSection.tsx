@@ -10,8 +10,8 @@ const AI_PROVIDERS = [
         id: 'google',
         name: 'Google Gemini',
         models: [
-            { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash', description: 'Recomendado - Best value', price: '$0.15 / $0.60' },
-            { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro', description: 'Most intelligent', price: '$1.25 / $10' },
+            { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', description: 'Recomendado - Rápido e econômico', price: '$0.15 / $0.60' },
+            { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: 'Mais inteligente', price: '$1.25 / $10' },
         ]
     },
     {
