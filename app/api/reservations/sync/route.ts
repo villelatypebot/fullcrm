@@ -78,6 +78,9 @@ export async function GET() {
 
       let contactId: string;
 
+      // Build reservation tag for notes field (parsed by ContactsList UI)
+      const reservationTag = `[RESERVA:${reservation.confirmation_code}|${reservation.reservation_date}|${(reservation.reservation_time || '').substring(0, 5)}|${reservation.pax}|${unit?.name || ''}|${reservation.status}]`;
+
       if (existingContacts && existingContacts.length > 0) {
         contactId = existingContacts[0].id;
 
@@ -88,6 +91,7 @@ export async function GET() {
             temperature: 'warm',
             stage: 'CUSTOMER',
             last_interaction: new Date().toISOString(),
+            notes: reservationTag,
             ...(customer.email && !existingContacts[0].phone ? { email: customer.email } : {}),
           })
           .eq('id', contactId);
@@ -107,6 +111,7 @@ export async function GET() {
             stage: 'CUSTOMER',
             source: 'WEBSITE',
             temperature: 'warm',
+            notes: reservationTag,
           })
           .select('id')
           .single();

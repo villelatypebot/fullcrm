@@ -1,5 +1,5 @@
-import React from 'react';
-import { Building2, Mail, Phone, Plus, Calendar, Pencil, Trash2, Globe, MoreHorizontal, ArrowUpDown, ArrowUp, ArrowDown, Thermometer } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Building2, Mail, Phone, Plus, Calendar, Pencil, Trash2, Globe, MoreHorizontal, ArrowUpDown, ArrowUp, ArrowDown, CalendarCheck } from 'lucide-react';
 import { Contact, Company, ContactSortableColumn } from '@/types';
 import { StageBadge } from './ContactsStageTabs';
 
@@ -85,24 +85,48 @@ interface ContactsListProps {
     onSort?: (column: ContactSortableColumn) => void;
 }
 
-const TEMPERATURE_CONFIG: Record<string, { label: string; color: string }> = {
-    cold: { label: 'Frio', color: 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-500/10 dark:text-blue-400 dark:border-blue-500/20' },
-    warm: { label: 'Morno', color: 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-500/10 dark:text-yellow-400 dark:border-yellow-500/20' },
-    hot: { label: 'Quente', color: 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-500/10 dark:text-orange-400 dark:border-orange-500/20' },
-    on_fire: { label: 'On Fire', color: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-500/10 dark:text-red-400 dark:border-red-500/20' },
-};
+/**
+ * Shows the latest reservation info for a contact.
+ * Parses reservation data stored in notes field by the sync process.
+ * Format: [RESERVA:CODE|DATE|TIME|PAX|UNIT|STATUS]
+ */
+const ReservationBadge: React.FC<{ notes?: string }> = ({ notes }) => {
+    if (!notes) return <span className="text-xs text-slate-400">---</span>;
 
-const TemperatureBadge: React.FC<{ temperature?: string; score?: number }> = ({ temperature, score }) => {
-    const config = TEMPERATURE_CONFIG[temperature || 'cold'] || TEMPERATURE_CONFIG.cold;
+    // Parse reservation tag from notes: [RESERVA:FH-ABC123|2026-03-27|19:00|6|Full House Boa Vista|confirmed]
+    const match = notes.match(/\[RESERVA:([^|]+)\|([^|]+)\|([^|]+)\|([^|]+)\|([^|]+)\|([^\]]+)\]/);
+    if (!match) return <span className="text-xs text-slate-400">---</span>;
+
+    const [, code, date, time, pax, unit, status] = match;
+
+    // Format date to dd/mm
+    const dateParts = date.split('-');
+    const dateFormatted = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}` : date;
+
+    const statusColors: Record<string, string> = {
+        confirmed: 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20',
+        pending: 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-500/10 dark:text-yellow-400 dark:border-yellow-500/20',
+        seated: 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-500/10 dark:text-blue-400 dark:border-blue-500/20',
+    };
+
+    const statusLabels: Record<string, string> = {
+        confirmed: 'Confirmada',
+        pending: 'Pendente',
+        seated: 'Sentado',
+    };
+
     return (
-        <div className="flex items-center gap-1.5">
-            <Thermometer size={14} className="text-slate-400" />
-            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${config.color}`}>
-                {config.label}
+        <div className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-1.5">
+                <CalendarCheck size={13} className="text-emerald-500" />
+                <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200">{code}</span>
+            </div>
+            <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                {dateFormatted} {time} · {pax}p · {unit.replace('Full House ', '')}
             </span>
-            {typeof score === 'number' && score > 0 && (
-                <span className="text-[10px] text-slate-500 dark:text-slate-400">{score}</span>
-            )}
+            <span className={`text-[9px] font-bold px-1.5 py-0 rounded-full border w-fit ${statusColors[status] || statusColors.pending}`}>
+                {statusLabels[status] || status}
+            </span>
         </div>
     );
 };
@@ -203,7 +227,7 @@ export const ContactsList: React.FC<ContactsListProps> = ({
                                     <th scope="col" className="px-6 py-4 font-bold text-slate-700 dark:text-slate-200 font-display text-xs uppercase tracking-wider">Nome</th>
                                 )}
                                 <th scope="col" className="px-6 py-4 font-bold text-slate-700 dark:text-slate-200 font-display text-xs uppercase tracking-wider">Estágio</th>
-                                <th scope="col" className="px-6 py-4 font-bold text-slate-700 dark:text-slate-200 font-display text-xs uppercase tracking-wider">Temp.</th>
+                                <th scope="col" className="px-6 py-4 font-bold text-slate-700 dark:text-slate-200 font-display text-xs uppercase tracking-wider">Reserva</th>
                                 <th scope="col" className="px-6 py-4 font-bold text-slate-700 dark:text-slate-200 font-display text-xs uppercase tracking-wider">Contato</th>
                                 <th scope="col" className="px-6 py-4 font-bold text-slate-700 dark:text-slate-200 font-display text-xs uppercase tracking-wider">Status</th>
                                 {onSort ? (
@@ -251,7 +275,7 @@ export const ContactsList: React.FC<ContactsListProps> = ({
                                         <StageBadge stage={contact.stage} />
                                     </td>
                                     <td className="px-6 py-4">
-                                        <TemperatureBadge temperature={contact.temperature} score={contact.leadScore} />
+                                        <ReservationBadge notes={contact.notes} />
                                     </td>
                                     <td className="px-6 py-4">
                                         <div className="flex flex-col gap-1">
