@@ -423,12 +423,23 @@ async function generateAIResponse(
     return config.transfer_message || 'Um atendente humano ira continuar o atendimento.';
   }
 
+  // Current date/time in São Paulo timezone
+  const now = new Date();
+  const spFormatter = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+  });
+  const currentDateTimeSP = spFormatter.format(now);
+
   const systemPrompt = [
     config.system_prompt,
     '',
     `Seu nome: ${config.agent_name}`,
     `Seu papel: ${config.agent_role || 'Atendente virtual'}`,
     `Tom: ${config.agent_tone}`,
+    `Data e hora atual: ${currentDateTimeSP} (horário de Brasília)`,
+    `Ano atual: ${now.getFullYear()}`,
     '',
     'REGRAS:',
     '- Responda APENAS em texto simples (sem formatação, asteriscos ou emojis em excesso)',
@@ -545,16 +556,24 @@ async function generateAIResponse(
       } else {
         console.log('[ai-agent] No text from model, using tool output:', JSON.stringify(lastResult).slice(0, 200));
 
+        // Helper: format YYYY-MM-DD to dd/mm/yyyy
+        const formatDate = (d: string) => {
+          const parts = String(d).split('-');
+          if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+          return d;
+        };
+
         // Build a meaningful fallback from tool data
         if (lastResult.available === true && lastResult.booking_link) {
           const slots = (lastResult.available_time_slots as Array<{ time: string; available_pax_capacity: number }>) || [];
-          const slotsText = slots.map(s => `${s.time} (${s.available_pax_capacity} vagas)`).join(', ');
-          return `Temos disponibilidade na ${lastResult.unit_name} em ${lastResult.date}! Horários: ${slotsText}.\n\nPara fazer sua reserva, acesse: ${lastResult.booking_link}`;
+          const slotsText = slots.map(s => s.time).join(', ');
+          const dateFormatted = formatDate(lastResult.date as string);
+          return `Temos disponibilidade na ${lastResult.unit_name} no dia ${dateFormatted}! Horários: ${slotsText}.\n\nPara fazer sua reserva, acesse:\n${lastResult.booking_link}`;
         } else if (lastResult.available === false) {
           return (lastResult.message as string) || 'Infelizmente não há disponibilidade nessa data. Gostaria de consultar outra data ou unidade?';
         } else if (lastResult.has_reservations === true) {
           const res = (lastResult.reservations as Array<{ date: string; time: string; unit_name: string }>) || [];
-          const resText = res.map(r => `${r.date} às ${r.time} na ${r.unit_name}`).join('; ');
+          const resText = res.map(r => `${formatDate(r.date)} às ${r.time} na ${r.unit_name}`).join('; ');
           return `Encontrei sua(s) reserva(s): ${resText}. Qualquer dúvida, estou aqui!`;
         }
       }
