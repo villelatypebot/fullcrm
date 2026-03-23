@@ -486,12 +486,24 @@ async function generateAIResponse(
 
   console.log('[ai-agent] Calling generateText with provider:', provider, 'model:', model, 'hasTools:', hasTools);
 
-  const result = await generateText({
-    model: modelInstance,
-    messages,
-    maxOutputTokens: 500,
-    ...(hasTools ? { maxSteps: 5, tools: reservationTools } : {}),
-  } as any);
+  // Some preview models don't support tools well — try with tools first, fall back without
+  let result;
+  try {
+    result = await generateText({
+      model: modelInstance,
+      messages,
+      maxOutputTokens: 500,
+      ...(hasTools ? { maxSteps: 5, tools: reservationTools } : {}),
+    } as any);
+  } catch (toolErr) {
+    console.warn('[ai-agent] generateText with tools failed, retrying without tools:', toolErr instanceof Error ? toolErr.message : String(toolErr));
+    // Retry without tools — append reservation context as text instruction instead
+    result = await generateText({
+      model: modelInstance,
+      messages,
+      maxOutputTokens: 500,
+    } as any);
+  }
 
   console.log('[ai-agent] generateText result - text length:', result.text?.length ?? 0,
     'steps:', (result as any).steps?.length ?? 0,
@@ -1093,13 +1105,22 @@ async function _executeAIAfterBatch(ctx: AIAgentContext, conversation: WhatsAppC
     }
   } catch (err) {
     console.error('[ai-agent] generateAIResponse FAILED:', err);
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    const errorStack = err instanceof Error ? (err.stack || '').slice(0, 300) : undefined;
+
     await insertAILog(supabase, {
       conversation_id: conversation.id,
       organization_id: instance.organization_id,
       action: 'error',
-      details: { error: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack?.slice(0, 300) : undefined },
+      details: { error: errorMsg, stack: errorStack },
       triggered_by: 'ai',
     });
+
+    // Send a graceful fallback reply so the customer doesn't get silence
+    try {
+      const fallback = config.transfer_message || 'Oi! Estou com uma instabilidade no momento. Pode repetir sua mensagem em alguns segundos? 😊';
+      await sendAIReply(supabase, instance, conversation, fallback);
+    } catch { /* ignore send errors */ }
   }
 }
 
