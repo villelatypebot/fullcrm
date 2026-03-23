@@ -148,6 +148,9 @@ export async function GET(request: Request) {
         toolName: tr.toolName,
         hasResult: tr.result !== undefined,
         resultPreview: JSON.stringify(tr.result)?.slice(0, 200),
+        allKeys: Object.keys(tr || {}),
+        type: tr.type,
+        output: typeof tr.output !== 'undefined' ? JSON.stringify(tr.output)?.slice(0, 200) : undefined,
       })),
     }));
 
