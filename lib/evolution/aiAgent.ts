@@ -519,7 +519,7 @@ async function generateAIResponse(
   }
 
   // Check if there are step results with text
-  const steps = (result as any).steps as Array<{ text?: string; toolResults?: Array<{ result: unknown }> }> | undefined;
+  const steps = (result as any).steps as Array<{ text?: string; toolResults?: Array<{ output: unknown; result: unknown }> }> | undefined;
   if (steps && steps.length > 0) {
     // Find the last step with text
     for (let i = steps.length - 1; i >= 0; i--) {
@@ -529,28 +529,35 @@ async function generateAIResponse(
     }
 
     // If no text in any step, build a response from tool results
+    // AI SDK v6 uses `output` field, older versions use `result`
     const lastToolResults = steps.flatMap(s => s.toolResults || []);
     if (lastToolResults.length > 0) {
       const lastEntry = lastToolResults[lastToolResults.length - 1];
-      const lastResult = lastEntry?.result as Record<string, unknown> | undefined;
-      if (!lastResult) {
-        console.warn('[ai-agent] Tool result is undefined, skipping fallback');
-      } else {
-      console.log('[ai-agent] No text from model, using tool result:', JSON.stringify(lastResult).slice(0, 200));
+      // AI SDK v6 stores tool output in `output`, fallback to `result` for compat
+      const rawOutput = (lastEntry as any)?.output ?? lastEntry?.result;
+      const lastResult: Record<string, unknown> | undefined =
+        typeof rawOutput === 'string' ? JSON.parse(rawOutput) :
+        typeof rawOutput === 'object' && rawOutput !== null ? rawOutput as Record<string, unknown> :
+        undefined;
 
-      // Build a meaningful fallback from tool data
-      if (lastResult?.available === true && lastResult?.booking_link) {
-        const slots = (lastResult.available_time_slots as Array<{ time: string; available_pax_capacity: number }>) || [];
-        const slotsText = slots.map(s => `${s.time} (${s.available_pax_capacity} vagas)`).join(', ');
-        return `Temos disponibilidade na ${lastResult.unit_name} em ${lastResult.date}! Horários: ${slotsText}.\n\nPara fazer sua reserva, acesse: ${lastResult.booking_link}`;
-      } else if (lastResult?.available === false) {
-        return lastResult.message as string || 'Infelizmente não há disponibilidade nessa data. Gostaria de consultar outra data ou unidade?';
-      } else if (lastResult?.has_reservations === true) {
-        const res = (lastResult.reservations as Array<{ date: string; time: string; unit_name: string }>) || [];
-        const resText = res.map(r => `${r.date} às ${r.time} na ${r.unit_name}`).join('; ');
-        return `Encontrei sua(s) reserva(s): ${resText}. Qualquer dúvida, estou aqui!`;
+      if (!lastResult) {
+        console.warn('[ai-agent] Tool result is undefined/empty');
+      } else {
+        console.log('[ai-agent] No text from model, using tool output:', JSON.stringify(lastResult).slice(0, 200));
+
+        // Build a meaningful fallback from tool data
+        if (lastResult.available === true && lastResult.booking_link) {
+          const slots = (lastResult.available_time_slots as Array<{ time: string; available_pax_capacity: number }>) || [];
+          const slotsText = slots.map(s => `${s.time} (${s.available_pax_capacity} vagas)`).join(', ');
+          return `Temos disponibilidade na ${lastResult.unit_name} em ${lastResult.date}! Horários: ${slotsText}.\n\nPara fazer sua reserva, acesse: ${lastResult.booking_link}`;
+        } else if (lastResult.available === false) {
+          return (lastResult.message as string) || 'Infelizmente não há disponibilidade nessa data. Gostaria de consultar outra data ou unidade?';
+        } else if (lastResult.has_reservations === true) {
+          const res = (lastResult.reservations as Array<{ date: string; time: string; unit_name: string }>) || [];
+          const resText = res.map(r => `${r.date} às ${r.time} na ${r.unit_name}`).join('; ');
+          return `Encontrei sua(s) reserva(s): ${resText}. Qualquer dúvida, estou aqui!`;
+        }
       }
-      } // close else block
     }
   }
 

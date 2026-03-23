@@ -27,10 +27,10 @@ export class ReservationClient {
    * Get all active units (restaurants/locations).
    */
   async getUnits(): Promise<ReservationUnit[]> {
+    // Reservation system is single-tenant — no organization_id filter needed
     const { data, error } = await this.supabase
       .from('units')
       .select('*')
-      .eq('organization_id', this.organizationId)
       .eq('is_active', true)
       .order('name');
 
@@ -338,11 +338,30 @@ export class ReservationClient {
 }
 
 /**
- * Create a ReservationClient bounded to an Organization.
+ * Create a ReservationClient using the reservation system's Supabase credentials.
+ * Reads reservation_supabase_url and reservation_supabase_key from organization_settings.
  */
 export async function createReservationClient(
-  supabase: SupabaseClient,
+  crmSupabase: SupabaseClient,
   organizationId: string,
 ): Promise<ReservationClient | null> {
-  return new ReservationClient(supabase, organizationId);
+  // Get reservation Supabase credentials from CRM settings
+  const { data: settings } = await crmSupabase
+    .from('organization_settings')
+    .select('reservation_supabase_url, reservation_supabase_key')
+    .eq('organization_id', organizationId)
+    .single();
+
+  if (!settings?.reservation_supabase_url || !settings?.reservation_supabase_key) {
+    console.warn('[reservation-client] No reservation Supabase credentials configured');
+    return null;
+  }
+
+  // Create a separate Supabase client for the reservation system
+  const reservationSupabase = createClient(
+    settings.reservation_supabase_url,
+    settings.reservation_supabase_key,
+  );
+
+  return new ReservationClient(reservationSupabase, organizationId);
 }
