@@ -957,66 +957,7 @@ async function _executeAIAfterBatch(ctx: AIAgentContext, conversation: WhatsAppC
       }
     }
 
-    // 4. Schedule follow-ups
-    if (config.follow_up_enabled) {
-      const followUpIntents = intelligence.intents.filter(
-        (i) => i.follow_up_delay_minutes && i.follow_up_delay_minutes > 0,
-      );
-
-      if (followUpIntents.length > 0) {
-        // Cancel any existing pending follow-ups before scheduling new ones
-        await cancelPendingFollowUps(supabase, conversation.id);
-
-        // Use the highest-confidence intent for the follow-up
-        const primaryIntent = followUpIntents.sort((a, b) => b.confidence - a.confidence)[0];
-
-        // Use configured sequence STRICTLY - never AI intent delays
-        const sequence = Array.isArray(config.follow_up_sequence)
-          ? config.follow_up_sequence as Array<{ delay_minutes: number; label: string }>
-          : [];
-        const maxFollowUps = sequence.length > 0
-          ? Math.min(sequence.length, config.follow_up_max_per_conversation ?? 3)
-          : 1;
-        const delayMinutes = sequence[0]?.delay_minutes
-          ?? config.follow_up_default_delay_minutes ?? 30;
-
-        const triggerAt = new Date(Date.now() + delayMinutes * 60 * 1000);
-
-        await createFollowUp(supabase, {
-          conversation_id: conversation.id,
-          organization_id: instance.organization_id,
-          instance_id: instance.id,
-          trigger_at: triggerAt.toISOString(),
-          follow_up_type: 'smart',
-          detected_intent: primaryIntent.intent,
-          intent_confidence: primaryIntent.confidence,
-          context: {
-            ...primaryIntent.context,
-            customer_name: conversation.contact_name || '',
-            context_for_message: intelligence.summary || '',
-            sequence_index: 0,
-            total_steps: maxFollowUps,
-          },
-          original_customer_message: incomingText,
-          original_message_id: ctx.incomingMessage.id,
-        });
-
-        await insertAILog(supabase, {
-          conversation_id: conversation.id,
-          organization_id: instance.organization_id,
-          action: 'follow_up_scheduled',
-          details: {
-            intent: primaryIntent.intent,
-            trigger_at: triggerAt.toISOString(),
-            delay_minutes: delayMinutes,
-            sequence_step: 0,
-            total_steps: maxFollowUps,
-          },
-          message_id: ctx.incomingMessage.id,
-          triggered_by: 'ai',
-        });
-      }
-    }
+    // 4. Follow-ups are scheduled AFTER the AI reply (see below)
 
     // 5. Smart pause
     if (config.smart_pause_enabled && intelligence.should_pause) {
@@ -1129,6 +1070,58 @@ async function _executeAIAfterBatch(ctx: AIAgentContext, conversation: WhatsAppC
       message_id: msg?.id,
       triggered_by: 'ai',
     });
+
+    // =====================================================================
+    // FOLLOW-UP: Schedule after EVERY AI reply.
+    // If the customer doesn't respond within X minutes, follow up.
+    // Cancel any existing follow-ups first (customer replied = reset timer).
+    // =====================================================================
+    if (config.follow_up_enabled) {
+      await cancelPendingFollowUps(supabase, conversation.id);
+
+      const sequence = Array.isArray(config.follow_up_sequence)
+        ? config.follow_up_sequence as Array<{ delay_minutes: number; label: string }>
+        : [];
+      const maxFollowUps = sequence.length > 0
+        ? Math.min(sequence.length, config.follow_up_max_per_conversation ?? 3)
+        : 1;
+      const delayMinutes = sequence[0]?.delay_minutes
+        ?? config.follow_up_default_delay_minutes ?? 30;
+
+      const triggerAt = new Date(Date.now() + delayMinutes * 60 * 1000);
+
+      await createFollowUp(supabase, {
+        conversation_id: conversation.id,
+        organization_id: instance.organization_id,
+        instance_id: instance.id,
+        trigger_at: triggerAt.toISOString(),
+        follow_up_type: 'smart',
+        detected_intent: 'silence_follow_up',
+        intent_confidence: 1.0,
+        context: {
+          customer_name: conversation.contact_name || '',
+          context_for_message: incomingText || '',
+          sequence_index: 0,
+          total_steps: maxFollowUps,
+        },
+        original_customer_message: incomingText || '',
+        original_message_id: ctx.incomingMessage.id,
+      });
+
+      await insertAILog(supabase, {
+        conversation_id: conversation.id,
+        organization_id: instance.organization_id,
+        action: 'follow_up_scheduled',
+        details: {
+          trigger_at: triggerAt.toISOString(),
+          delay_minutes: delayMinutes,
+          sequence_step: 0,
+          total_steps: maxFollowUps,
+        },
+        message_id: ctx.incomingMessage.id,
+        triggered_by: 'ai',
+      });
+    }
 
     // Generate summary periodically (every 10 messages)
     if (config.summary_enabled && msgCount && msgCount % 10 === 0) {
