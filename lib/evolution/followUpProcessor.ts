@@ -205,6 +205,14 @@ async function processOneFollowUp(
   // (we send the acknowledgment but don't chain further)
   const customerAlreadyBooked = reservationCheck?.hasReservation === true;
 
+  // Split into chunks of max 2 paragraphs (same logic as aiAgent)
+  const paragraphs = message.split(/\n\n+/).filter(p => p.trim().length > 0);
+  const chunks: string[] = [];
+  for (let i = 0; i < paragraphs.length; i += 2) {
+    chunks.push(paragraphs.slice(i, i + 2).join('\n\n').trim());
+  }
+  if (chunks.length === 0) chunks.push(message.trim());
+
   // Send via Evolution API
   const creds: evolution.EvolutionCredentials = {
     baseUrl: orgSettings.evolution_api_url,
@@ -212,27 +220,37 @@ async function processOneFollowUp(
     instanceName: instance.evolution_instance_name || instance.instance_id,
   };
 
-  const response = await evolution.sendText(creds, {
-    number: conversation.phone,
-    text: message,
-  });
+  let sentMsg: { id: string } | null = null;
 
-  // Persist message
-  const { data: sentMsg } = await supabase
-    .from('whatsapp_messages')
-    .insert({
-      conversation_id: followUp.conversation_id,
-      organization_id: followUp.organization_id,
-      evolution_message_id: response.key?.id || undefined,
-      from_me: true,
-      message_type: 'text',
-      text_body: message,
-      status: 'sent',
-      sent_by: 'ai_agent',
-      whatsapp_timestamp: new Date().toISOString(),
-    })
-    .select('id')
-    .single();
+  for (let i = 0; i < chunks.length; i++) {
+    if (i > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+    }
+
+    const response = await evolution.sendText(creds, {
+      number: conversation.phone,
+      text: chunks[i],
+    });
+
+    // Persist each chunk as a message
+    const { data: msg } = await supabase
+      .from('whatsapp_messages')
+      .insert({
+        conversation_id: followUp.conversation_id,
+        organization_id: followUp.organization_id,
+        evolution_message_id: response.key?.id || undefined,
+        from_me: true,
+        message_type: 'text',
+        text_body: chunks[i],
+        status: 'sent',
+        sent_by: 'ai_agent',
+        whatsapp_timestamp: new Date().toISOString(),
+      })
+      .select('id')
+      .single();
+
+    sentMsg = msg;
+  }
 
   // Mark follow-up as sent
   await updateFollowUpStatus(supabase, followUp.id, 'sent', sentMsg?.id);

@@ -774,6 +774,26 @@ async function _executeAIAfterBatch(ctx: AIAgentContext, conversation: WhatsAppC
 // SEND REPLY
 // =============================================================================
 
+/**
+ * Split text into chunks of max 2 paragraphs each.
+ * A paragraph is separated by double newline (\n\n).
+ */
+function splitIntoParagraphChunks(text: string, maxParagraphsPerChunk = 2): string[] {
+  const paragraphs = text.split(/\n\n+/).filter(p => p.trim().length > 0);
+
+  if (paragraphs.length <= maxParagraphsPerChunk) {
+    return [text.trim()];
+  }
+
+  const chunks: string[] = [];
+  for (let i = 0; i < paragraphs.length; i += maxParagraphsPerChunk) {
+    const chunk = paragraphs.slice(i, i + maxParagraphsPerChunk).join('\n\n');
+    chunks.push(chunk.trim());
+  }
+
+  return chunks;
+}
+
 async function sendAIReply(
   supabase: SupabaseClient,
   instance: AIAgentContext['instance'],
@@ -787,31 +807,45 @@ async function sendAIReply(
   };
 
   try {
-    const response = await evolution.sendText(creds, {
-      number: conversation.phone,
-      text,
-    });
+    // Split into chunks of max 2 paragraphs
+    const chunks = splitIntoParagraphChunks(text, 2);
+    let lastMsg: WhatsAppMessage | null = null;
 
-    const msg = await insertMessage(supabase, {
-      conversation_id: conversation.id,
-      organization_id: instance.organization_id,
-      evolution_message_id: response.key?.id || undefined,
-      from_me: true,
-      message_type: 'text',
-      text_body: text,
-      status: 'sent',
-      sent_by: 'ai_agent',
-      whatsapp_timestamp: new Date().toISOString(),
-    } as Parameters<typeof insertMessage>[1]);
+    for (let i = 0; i < chunks.length; i++) {
+      // Delay 5 seconds between chunks (not before the first one)
+      if (i > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+      }
 
-    // Update conversation metadata so the list reflects the AI reply
+      const response = await evolution.sendText(creds, {
+        number: conversation.phone,
+        text: chunks[i],
+      });
+
+      const msg = await insertMessage(supabase, {
+        conversation_id: conversation.id,
+        organization_id: instance.organization_id,
+        evolution_message_id: response.key?.id || undefined,
+        from_me: true,
+        message_type: 'text',
+        text_body: chunks[i],
+        status: 'sent',
+        sent_by: 'ai_agent',
+        whatsapp_timestamp: new Date().toISOString(),
+      } as Parameters<typeof insertMessage>[1]);
+
+      lastMsg = msg;
+    }
+
+    // Update conversation metadata with the last chunk sent
+    const lastChunk = chunks[chunks.length - 1];
     await updateConversation(supabase, conversation.id, {
-      last_message_text: text.slice(0, 255),
+      last_message_text: lastChunk.slice(0, 255),
       last_message_at: new Date().toISOString(),
       last_message_from_me: true,
     } as Parameters<typeof updateConversation>[2]);
 
-    return msg;
+    return lastMsg;
   } catch (err) {
     console.error('[ai-agent] sendAIReply FAILED for', conversation.phone, ':', err);
     return null;
