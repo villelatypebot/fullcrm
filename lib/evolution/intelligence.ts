@@ -109,7 +109,7 @@ const INTENT_PATTERNS: IntentPattern[] = [
       /(?:quando|qual) (?:(?:\u00e9 |seria )?a )?(?:data|hor\u00e1rio|pr\u00f3xim)/i,
       /(?:posso|consigo) (?:agendar|marcar|reservar)/i,
     ],
-    follow_up_delay_minutes: 0,
+    follow_up_delay_minutes: 30, // Follow up to check if customer made the reservation
     label: 'Interessado',
     score_delta: 20,
   },
@@ -122,7 +122,7 @@ const INTENT_PATTERNS: IntentPattern[] = [
       /(?:me )?(?:manda|envia) (?:o |a )?(?:contrato|proposta|boleto|pix|link)/i,
       /(?:fechado|fechou|bora|vamos l\u00e1|t\u00f4 dentro|to dentro|partiu)/i,
     ],
-    follow_up_delay_minutes: 0,
+    follow_up_delay_minutes: 30, // Follow up to check if customer completed the reservation
     label: 'Quente',
     score_delta: 30,
   },
