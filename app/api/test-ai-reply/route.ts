@@ -136,6 +136,21 @@ export async function GET(request: Request) {
 
     const elapsed = Date.now() - startTime;
 
+    // Debug: inspect step structure
+    const stepsData = ((result as any).steps || []).map((s: any, i: number) => ({
+      step: i,
+      hasText: !!s.text,
+      textLength: s.text?.length ?? 0,
+      textPreview: (s.text || '').slice(0, 100),
+      toolCallsCount: s.toolCalls?.length ?? 0,
+      toolResultsCount: s.toolResults?.length ?? 0,
+      toolResultKeys: (s.toolResults || []).map((tr: any) => ({
+        toolName: tr.toolName,
+        hasResult: tr.result !== undefined,
+        resultPreview: JSON.stringify(tr.result)?.slice(0, 200),
+      })),
+    }));
+
     return NextResponse.json({
       success: true,
       provider,
@@ -145,7 +160,9 @@ export async function GET(request: Request) {
       text: result.text || '(empty)',
       text_length: result.text?.length ?? 0,
       steps: (result as any).steps?.length ?? 0,
+      stepsDetail: stepsData,
       toolCalls: (result as any).toolCalls?.length ?? 0,
+      toolResults: (result as any).toolResults?.length ?? 0,
       messages_count: messages.length,
       input_msg: msg,
     });
