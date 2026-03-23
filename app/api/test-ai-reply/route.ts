@@ -121,7 +121,6 @@ export async function GET(request: Request) {
       result = await generateText({
         model: modelInstance,
         messages,
-        maxOutputTokens: 500,
         ...(hasTools ? { maxSteps: 5, tools: reservationTools } : {}),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any);
@@ -131,7 +130,6 @@ export async function GET(request: Request) {
       result = await generateText({
         model: modelInstance,
         messages,
-        maxOutputTokens: 500,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any);
     }

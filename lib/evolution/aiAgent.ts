@@ -496,16 +496,14 @@ async function generateAIResponse(
     result = await generateText({
       model: modelInstance,
       messages,
-      maxOutputTokens: 500,
       ...(hasTools ? { maxSteps: 5, tools: reservationTools } : {}),
     } as any);
   } catch (toolErr) {
     console.warn('[ai-agent] generateText with tools failed, retrying without tools:', toolErr instanceof Error ? toolErr.message : String(toolErr));
-    // Retry without tools — append reservation context as text instruction instead
+    // Retry without tools
     result = await generateText({
       model: modelInstance,
       messages,
-      maxOutputTokens: 500,
     } as any);
   }
 
