@@ -453,15 +453,19 @@ async function generateAIResponse(
   const messages = [
     { role: 'system' as const, content: fullSystemPrompt },
     ...(conversationHistory
-      ? conversationHistory.split('\n').map((line) => {
-          const isAssistant = line.startsWith('Assistente:');
-          return {
-            role: isAssistant ? ('assistant' as const) : ('user' as const),
-            content: line.replace(/^(Assistente|Cliente): /, ''),
-          };
-        })
+      ? conversationHistory.split('\n')
+          .filter(line => line.trim().length > 0)
+          .map((line) => {
+            const isAssistant = line.startsWith('Assistente:');
+            const content = line.replace(/^(Assistente|Cliente): /, '').trim();
+            return {
+              role: isAssistant ? ('assistant' as const) : ('user' as const),
+              content: content || '...',
+            };
+          })
+          .filter(msg => msg.content.length > 0)
       : []),
-    { role: 'user' as const, content: incomingText },
+    ...(incomingText?.trim() ? [{ role: 'user' as const, content: incomingText.trim() }] : []),
   ];
 
   const { generateText } = await import('ai');
@@ -529,7 +533,11 @@ async function generateAIResponse(
     // If no text in any step, build a response from tool results
     const lastToolResults = steps.flatMap(s => s.toolResults || []);
     if (lastToolResults.length > 0) {
-      const lastResult = lastToolResults[lastToolResults.length - 1].result as Record<string, unknown>;
+      const lastEntry = lastToolResults[lastToolResults.length - 1];
+      const lastResult = lastEntry?.result as Record<string, unknown> | undefined;
+      if (!lastResult) {
+        console.warn('[ai-agent] Tool result is undefined, skipping fallback');
+      } else {
       console.log('[ai-agent] No text from model, using tool result:', JSON.stringify(lastResult).slice(0, 200));
 
       // Build a meaningful fallback from tool data
@@ -544,6 +552,7 @@ async function generateAIResponse(
         const resText = res.map(r => `${r.date} às ${r.time} na ${r.unit_name}`).join('; ');
         return `Encontrei sua(s) reserva(s): ${resText}. Qualquer dúvida, estou aqui!`;
       }
+      } // close else block
     }
   }
 
@@ -1192,7 +1201,7 @@ async function sendAIReply(
     }
 
     // Update conversation metadata with the last chunk sent
-    const lastChunk = chunks[chunks.length - 1];
+    const lastChunk = chunks[chunks.length - 1] || text || '';
     await updateConversation(supabase, conversation.id, {
       last_message_text: lastChunk.slice(0, 255),
       last_message_at: new Date().toISOString(),

@@ -1,22 +1,20 @@
 import { z } from 'zod';
+import { tool } from 'ai';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createReservationClient } from '@/lib/reservations/client';
-
-// Build tools as plain objects with Zod parameters - compatible with generateText()
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyTool = any;
 
 /**
  * Build AI SDK tools for the reservation system.
  *
- * Uses Zod schemas (recommended by Vercel AI SDK) instead of jsonSchema()
- * to ensure compatibility with all providers (Google Gemini, OpenAI, Anthropic).
+ * Uses the `tool()` helper from Vercel AI SDK v6 with `inputSchema`
+ * for maximum compatibility with all providers (Google Gemini, OpenAI, Anthropic).
  */
 export async function buildReservationTools(
   supabase: SupabaseClient,
   organizationId: string,
   customerInfo: { phone: string; name: string }
-): Promise<Record<string, AnyTool>> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<Record<string, any>> {
   const client = await createReservationClient(supabase, organizationId);
   if (!client) return {};
 
@@ -31,13 +29,13 @@ export async function buildReservationTools(
     : 'Consulte as unidades disponíveis';
 
   return {
-    check_availability: {
+    check_availability: tool({
       description: `Consulta a disponibilidade de horários e vagas de uma unidade para uma data. ${unitsDescription}. SEMPRE use esta ferramenta quando o cliente perguntar sobre disponibilidade, vagas, horários ou quiser fazer reserva.`,
-      parameters: z.object({
+      inputSchema: z.object({
         date: z.string().describe('Data da reserva no formato YYYY-MM-DD'),
         unit_name: z.string().describe('Nome ou slug da unidade (ex: "boa vista", "colubande", "araruama", "niteroi", "santa rosa")'),
       }),
-      execute: async ({ date, unit_name }: { date: string; unit_name: string }) => {
+      execute: async ({ date, unit_name }) => {
         try {
           const unit = await client.findUnitByName(unit_name);
           if (!unit) {
@@ -76,11 +74,11 @@ export async function buildReservationTools(
           return { error: 'Falha ao consultar disponibilidade: ' + (e instanceof Error ? e.message : String(e)) };
         }
       },
-    },
+    }),
 
-    lookup_customer_reservations: {
+    lookup_customer_reservations: tool({
       description: 'Busca reservas futuras do cliente atual pelo telefone. Use para verificar se o cliente já tem reserva antes de oferecer nova.',
-      parameters: z.object({}),
+      inputSchema: z.object({}),
       execute: async () => {
         try {
           const reservations = await client.getReservationsByPhone(customerInfo.phone);
@@ -108,13 +106,12 @@ export async function buildReservationTools(
           return { error: 'Falha ao buscar reservas do cliente: ' + (e instanceof Error ? e.message : String(e)) };
         }
       },
-    },
+    }),
   };
 }
 
 /**
  * Build the system prompt section that teaches the AI how to handle reservations.
- * The AI should ALWAYS direct customers to the booking link.
  */
 export async function buildReservationSystemPrompt(
   supabase: SupabaseClient,
