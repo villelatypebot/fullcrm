@@ -62,7 +62,8 @@ interface AIAgentContext {
 function isWithinWorkingHours(config: WhatsAppAIConfig): boolean {
   if (!config.working_hours_start || !config.working_hours_end) return true;
 
-  const now = new Date();
+  // Use São Paulo timezone (UTC-3) — Vercel runs in UTC
+  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
   const day = now.getDay();
 
   if (!config.working_days.includes(day)) return false;
@@ -164,6 +165,224 @@ function buildMemoryContext(memories: ChatMemory[]): string {
   }
 
   return parts.join('\n');
+}
+
+// =============================================================================
+// MEDIA PROCESSING (Audio transcription + Image analysis)
+// =============================================================================
+
+/**
+ * Transcribe audio message using OpenAI Whisper API.
+ * Falls back to Google if no OpenAI key available.
+ */
+async function transcribeAudio(
+  supabase: SupabaseClient,
+  organizationId: string,
+  instance: AIAgentContext['instance'],
+  evolutionMessageId: string,
+): Promise<string | null> {
+  try {
+    const creds: evolution.EvolutionCredentials = {
+      baseUrl: instance.evolution_api_url,
+      apiKey: instance.instance_token,
+      instanceName: instance.evolution_instance_name,
+    };
+
+    console.log('[ai-agent] Downloading audio for transcription, messageId:', evolutionMessageId);
+    const media = await evolution.getBase64FromMedia(creds, evolutionMessageId);
+    if (!media?.base64) {
+      console.warn('[ai-agent] No base64 audio received from Evolution API');
+      return null;
+    }
+
+    // Get API keys
+    const { data: orgSettings } = await supabase
+      .from('organization_settings')
+      .select('ai_openai_key, ai_google_key')
+      .eq('organization_id', organizationId)
+      .single();
+
+    // Try OpenAI Whisper first (best for audio transcription)
+    if (orgSettings?.ai_openai_key) {
+      console.log('[ai-agent] Transcribing audio with OpenAI Whisper');
+      const audioBuffer = Buffer.from(media.base64, 'base64');
+
+      // Create a FormData-like request for OpenAI Whisper API
+      const boundary = '----FormBoundary' + Math.random().toString(36).slice(2);
+      const ext = media.mimetype?.includes('ogg') ? 'ogg' : 'mp3';
+      const body = Buffer.concat([
+        Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="audio.${ext}"\r\nContent-Type: ${media.mimetype || 'audio/ogg'}\r\n\r\n`),
+        audioBuffer,
+        Buffer.from(`\r\n--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\nwhisper-1\r\n--${boundary}\r\nContent-Disposition: form-data; name="language"\r\n\r\npt\r\n--${boundary}--\r\n`),
+      ]);
+
+      const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${orgSettings.ai_openai_key}`,
+          'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        },
+        body,
+      });
+
+      if (response.ok) {
+        const result = await response.json() as { text: string };
+        console.log('[ai-agent] Audio transcribed:', result.text?.slice(0, 100));
+        return result.text || null;
+      }
+      console.warn('[ai-agent] Whisper API failed:', response.status, await response.text().catch(() => ''));
+    }
+
+    // Fallback: Use Gemini for audio understanding
+    if (orgSettings?.ai_google_key) {
+      console.log('[ai-agent] Transcribing audio with Gemini');
+      const { createGoogleGenerativeAI } = await import('@ai-sdk/google');
+      const { generateText } = await import('ai');
+      const google = createGoogleGenerativeAI({ apiKey: orgSettings.ai_google_key });
+
+      const result = await generateText({
+        model: google('gemini-2.5-flash'),
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Transcreva este áudio em português. Retorne APENAS o texto falado, sem comentários.' },
+              {
+                type: 'file',
+                data: media.base64,
+                mimeType: (media.mimetype || 'audio/ogg') as any,
+              } as any,
+            ],
+          },
+        ],
+      });
+
+      console.log('[ai-agent] Audio transcribed via Gemini:', result.text?.slice(0, 100));
+      return result.text || null;
+    }
+
+    console.warn('[ai-agent] No API key available for audio transcription');
+    return null;
+  } catch (err) {
+    console.error('[ai-agent] Audio transcription failed:', err);
+    return null;
+  }
+}
+
+/**
+ * Analyze an image message using multimodal AI.
+ * Returns a description/understanding of the image content.
+ */
+async function analyzeImage(
+  supabase: SupabaseClient,
+  organizationId: string,
+  instance: AIAgentContext['instance'],
+  evolutionMessageId: string,
+  caption?: string,
+  conversationContext?: string,
+): Promise<{ description: string; isRelevant: boolean } | null> {
+  try {
+    const creds: evolution.EvolutionCredentials = {
+      baseUrl: instance.evolution_api_url,
+      apiKey: instance.instance_token,
+      instanceName: instance.evolution_instance_name,
+    };
+
+    console.log('[ai-agent] Downloading image for analysis, messageId:', evolutionMessageId);
+    const media = await evolution.getBase64FromMedia(creds, evolutionMessageId);
+    if (!media?.base64) {
+      console.warn('[ai-agent] No base64 image received from Evolution API');
+      return null;
+    }
+
+    const { data: orgSettings } = await supabase
+      .from('organization_settings')
+      .select('ai_google_key, ai_openai_key')
+      .eq('organization_id', organizationId)
+      .single();
+
+    const systemPrompt = `Você é a assistente Eshylei da Full House Rodízio de Comida de Festa.
+Analise esta imagem enviada por um cliente no WhatsApp.
+
+Contexto da conversa: ${conversationContext || 'Início de conversa'}
+${caption ? `Legenda da imagem: ${caption}` : ''}
+
+Responda em JSON com:
+- "description": breve descrição do que está na imagem (1-2 frases)
+- "isRelevant": true se a imagem é relevante para o atendimento (comprovante de pagamento, foto do evento, print de reserva, cardápio, etc), false se é irrelevante (meme, foto pessoal aleatória, etc)
+- "response_suggestion": se relevante, sugira como responder. Se irrelevante, null.
+
+Responda APENAS o JSON, sem markdown.`;
+
+    // Prefer Google for vision (cheaper + supports natively)
+    if (orgSettings?.ai_google_key) {
+      console.log('[ai-agent] Analyzing image with Gemini');
+      const { createGoogleGenerativeAI } = await import('@ai-sdk/google');
+      const { generateText } = await import('ai');
+      const google = createGoogleGenerativeAI({ apiKey: orgSettings.ai_google_key });
+
+      const result = await generateText({
+        model: google('gemini-2.5-flash'),
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: systemPrompt },
+              {
+                type: 'image',
+                image: media.base64,
+                mimeType: (media.mimetype || 'image/jpeg') as any,
+              } as any,
+            ],
+          },
+        ],
+      });
+
+      try {
+        const parsed = JSON.parse(result.text.replace(/```json\n?|\n?```/g, '').trim());
+        return { description: parsed.description, isRelevant: parsed.isRelevant ?? false };
+      } catch {
+        return { description: result.text, isRelevant: true };
+      }
+    }
+
+    // Fallback to OpenAI Vision
+    if (orgSettings?.ai_openai_key) {
+      console.log('[ai-agent] Analyzing image with OpenAI Vision');
+      const { createOpenAI } = await import('@ai-sdk/openai');
+      const { generateText } = await import('ai');
+      const openai = createOpenAI({ apiKey: orgSettings.ai_openai_key });
+
+      const result = await generateText({
+        model: openai('gpt-4o-mini'),
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: systemPrompt },
+              {
+                type: 'image',
+                image: media.base64,
+                mimeType: (media.mimetype || 'image/jpeg') as any,
+              } as any,
+            ],
+          },
+        ],
+      });
+
+      try {
+        const parsed = JSON.parse(result.text.replace(/```json\n?|\n?```/g, '').trim());
+        return { description: parsed.description, isRelevant: parsed.isRelevant ?? false };
+      } catch {
+        return { description: result.text, isRelevant: true };
+      }
+    }
+
+    return null;
+  } catch (err) {
+    console.error('[ai-agent] Image analysis failed:', err);
+    return null;
+  }
 }
 
 // =============================================================================
@@ -549,16 +768,65 @@ async function _executeAIAfterBatch(ctx: AIAgentContext, conversation: WhatsAppC
   // Fetch all unread messages from the customer to form the complete "incomingText"
   const { data: recentMsgs } = await supabase
     .from('whatsapp_messages')
-    .select('text_body')
+    .select('text_body, message_type, media_url, media_caption, evolution_message_id')
     .eq('conversation_id', conversation.id)
     .eq('from_me', false)
     .order('created_at', { ascending: false })
     .limit(conversation.unread_count || 1);
 
-  // Group multiple messages safely into a single conceptual paragraph for the AI
-  const incomingText = recentMsgs ? recentMsgs.reverse().map(m => m.text_body).filter(Boolean).join('\n') : '';
+  // Process media messages (audio/image) to extract text content
+  const textParts: string[] = [];
+  let imageAnalysisResult: { description: string; isRelevant: boolean } | null = null;
 
-  // Only run intelligence on text messages
+  if (recentMsgs) {
+    for (const msg of recentMsgs.reverse()) {
+      if (msg.text_body) {
+        textParts.push(msg.text_body);
+      } else if (msg.message_type === 'audio' && msg.evolution_message_id) {
+        // Transcribe audio
+        const transcription = await transcribeAudio(
+          supabase, instance.organization_id, instance, msg.evolution_message_id,
+        );
+        if (transcription) {
+          textParts.push(transcription);
+          // Update the message in DB with the transcription
+          await supabase.from('whatsapp_messages')
+            .update({ text_body: `[Áudio transcrito]: ${transcription}` })
+            .eq('evolution_message_id', msg.evolution_message_id)
+            .eq('conversation_id', conversation.id);
+          console.log('[ai-agent] Audio transcribed and saved:', transcription.slice(0, 80));
+        } else {
+          textParts.push('[Cliente enviou um áudio que não pôde ser transcrito]');
+        }
+      } else if (msg.message_type === 'image' && msg.evolution_message_id) {
+        // Analyze image
+        const conversationHistory = await buildConversationContext(supabase, conversation.id);
+        imageAnalysisResult = await analyzeImage(
+          supabase, instance.organization_id, instance,
+          msg.evolution_message_id, msg.media_caption || undefined, conversationHistory,
+        );
+        if (imageAnalysisResult) {
+          if (imageAnalysisResult.isRelevant) {
+            textParts.push(`[Cliente enviou uma imagem: ${imageAnalysisResult.description}]`);
+          } else {
+            textParts.push(`[Cliente enviou uma imagem irrelevante: ${imageAnalysisResult.description}]`);
+          }
+          if (msg.media_caption) textParts.push(msg.media_caption);
+          console.log('[ai-agent] Image analyzed:', imageAnalysisResult.description.slice(0, 80), 'relevant:', imageAnalysisResult.isRelevant);
+        } else {
+          textParts.push('[Cliente enviou uma imagem]');
+          if (msg.media_caption) textParts.push(msg.media_caption);
+        }
+      } else if (msg.media_caption) {
+        textParts.push(msg.media_caption);
+      }
+    }
+  }
+
+  // Group multiple messages safely into a single conceptual paragraph for the AI
+  const incomingText = textParts.filter(Boolean).join('\n');
+
+  // Run intelligence and generate response for any processed content
   if (incomingText) {
     const conversationHistory = await buildConversationContext(supabase, conversation.id);
     const existingMemories = await getMemories(supabase, conversation.id);
