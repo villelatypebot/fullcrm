@@ -219,6 +219,8 @@ async function generateAIResponse(
     '- USE AS MEMORIAS DO CONTATO para personalizar a conversa',
     '- Se o cliente mencionou o nome de alguem (esposo, filha, etc), use o nome na conversa',
     '- Seja natural e humano, nao robotico',
+    '- NUNCA colete dados de reserva (nome, data, horário, etc) pelo WhatsApp. Para reservas, SEMPRE direcione ao link: https://fullhouseagendamento.vercel.app',
+    '- Quando o assunto for reserva, use as ferramentas (tools) para consultar disponibilidade e depois envie o link',
     crmContext ? `\nCONTEXTO CRM:\n${crmContext}` : '',
     memoryContext || '',
   ].filter(Boolean).join('\n');
@@ -261,13 +263,13 @@ async function generateAIResponse(
   }
 
   const reservationTools = await buildReservationTools(supabase, organizationId, customerInfo);
+  const hasTools = Object.keys(reservationTools).length > 0;
 
   const result = await generateText({
     model: modelInstance,
     messages,
     maxOutputTokens: 500,
-    maxSteps: 3, // Enable Tool Calling Loop Sequence
-    tools: reservationTools,
+    ...(hasTools ? { maxSteps: 3, tools: reservationTools } : {}),
   } as any);
 
   return result.text || config.transfer_message || 'Desculpe, nao consegui processar sua mensagem.';
@@ -411,10 +413,9 @@ export async function processIncomingMessage(ctx: AIAgentContext): Promise<void>
   // Lock this conversation
   pendingAIProcessing.set(conversation.id, true);
 
-  // Wait 30 seconds synchronously. (Vercel kills background setTimeouts, so we must await!)
-  // Note: Since Vercel hobby maximum limit is 10s-15s, this 30s delay MIGHT cause a 504 Gateway Timeout
-  // if hosted on a free tier, but the code will execute perfectly.
-  await new Promise((resolve) => setTimeout(resolve, 30000));
+  // Wait 10 seconds for message batching. Reduced from 30s to avoid Vercel timeout.
+  // Total request time: 10s batch + ~15s AI generation = ~25s (within 60s Vercel Pro limit)
+  await new Promise((resolve) => setTimeout(resolve, 10000));
 
   // Release lock
   pendingAIProcessing.delete(conversation.id);
