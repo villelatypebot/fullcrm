@@ -9,10 +9,11 @@
  * For each pending follow-up:
  * 1. Check if the customer already replied (auto-cancelled by trigger)
  * 2. Check quiet hours
- * 3. Generate a contextual follow-up message using AI + memory
- * 4. Send via Evolution API
- * 5. Re-activate AI on the conversation
- * 6. Log the action
+ * 3. CHECK IF CUSTOMER ALREADY HAS A RESERVATION (new!)
+ * 4. Generate a contextual follow-up message using AI + memory
+ * 5. Send via Evolution API
+ * 6. Re-activate AI on the conversation
+ * 7. Log the action
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -25,6 +26,7 @@ import {
 } from '@/lib/supabase/whatsappIntelligence';
 import { getAIConfig, insertAILog, updateConversation, getConversation } from '@/lib/supabase/whatsapp';
 import { generateFollowUpMessage } from '@/lib/evolution/intelligence';
+import { createReservationClient } from '@/lib/reservations/client';
 import * as evolution from '@/lib/evolution/client';
 
 export interface ProcessResult {
@@ -62,6 +64,45 @@ export async function processFollowUps(supabase: SupabaseClient): Promise<Proces
   }
 
   return result;
+}
+
+/**
+ * Check if the customer already has a future reservation.
+ * Returns reservation info if found, null otherwise.
+ */
+async function checkCustomerReservation(
+  supabase: SupabaseClient,
+  organizationId: string,
+  phone: string,
+): Promise<{
+  hasReservation: boolean;
+  reservationSummary?: string;
+} | null> {
+  try {
+    const client = await createReservationClient(supabase, organizationId);
+    if (!client) return null;
+
+    const reservations = await client.getReservationsByPhone(phone);
+    if (reservations.length === 0) {
+      return { hasReservation: false };
+    }
+
+    // Build a summary of the reservations
+    const summaries = reservations.map(r => {
+      const unitName = r.units?.name || 'unidade';
+      const date = new Date(r.reservation_date + 'T12:00:00');
+      const dateStr = date.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
+      return `${unitName} no dia ${dateStr} às ${r.reservation_time?.substring(0, 5)} para ${r.pax} pessoas (status: ${r.status}, código: ${r.confirmation_code || 'N/A'})`;
+    });
+
+    return {
+      hasReservation: true,
+      reservationSummary: summaries.join('; '),
+    };
+  } catch (err) {
+    console.error('[follow-up-processor] Error checking reservation:', err);
+    return null;
+  }
 }
 
 async function processOneFollowUp(
@@ -132,6 +173,16 @@ async function processOneFollowUp(
     return;
   }
 
+  // =========================================================================
+  // CHECK IF CUSTOMER ALREADY HAS A RESERVATION
+  // If yes, send acknowledgment and STOP the follow-up chain
+  // =========================================================================
+  const reservationCheck = await checkCustomerReservation(
+    supabase,
+    followUp.organization_id,
+    conversation.phone,
+  );
+
   // Get memories for context
   const memories = await getMemories(supabase, followUp.conversation_id);
   const customerName = conversation.contact_name || conversation.contact?.name || '';
@@ -146,8 +197,13 @@ async function processOneFollowUp(
       customerName,
       memories,
       config,
+      reservationCheck?.hasReservation ? reservationCheck.reservationSummary : undefined,
     );
   }
+
+  // If customer already has a reservation, this is the LAST follow-up
+  // (we send the acknowledgment but don't chain further)
+  const customerAlreadyBooked = reservationCheck?.hasReservation === true;
 
   // Send via Evolution API
   const creds: evolution.EvolutionCredentials = {
@@ -195,6 +251,7 @@ async function processOneFollowUp(
       follow_up_id: followUp.id,
       detected_intent: followUp.detected_intent,
       message_preview: message.slice(0, 100),
+      customer_already_booked: customerAlreadyBooked,
     },
     message_id: sentMsg?.id,
     triggered_by: 'ai',
@@ -202,7 +259,24 @@ async function processOneFollowUp(
 
   result.sent++;
 
-  // Chain next follow-up step if sequence is configured
+  // =========================================================================
+  // CHAIN NEXT FOLLOW-UP (only if customer has NOT already booked)
+  // =========================================================================
+  if (customerAlreadyBooked) {
+    // Customer already has a reservation - no more follow-ups needed
+    await insertAILog(supabase, {
+      conversation_id: followUp.conversation_id,
+      organization_id: followUp.organization_id,
+      action: 'follow_up_chain_stopped',
+      details: {
+        reason: 'customer_has_reservation',
+        reservation_summary: reservationCheck?.reservationSummary,
+      },
+      triggered_by: 'ai',
+    });
+    return;
+  }
+
   const followUpContext = followUp.context as Record<string, unknown> | undefined;
   const sequenceIndex = followUpContext?.sequence_index;
   const totalSteps = followUpContext?.total_steps;

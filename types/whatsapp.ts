@@ -321,7 +321,8 @@ export type AILogAction =
   | 'smart_paused'
   | 'smart_resumed'
   | 'stage_auto_changed'
-  | 'deal_auto_updated';
+  | 'deal_auto_updated'
+  | 'follow_up_chain_stopped';
 
 export interface WhatsAppAILog {
   id: string;

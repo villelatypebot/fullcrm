@@ -416,26 +416,42 @@ function mergeIntents(local: DetectedIntent[], ai: DetectedIntent[]): DetectedIn
 // FOLLOW-UP MESSAGE GENERATOR
 // =============================================================================
 
-const FOLLOW_UP_PROMPT = `Voc\u00ea \u00e9 um assistente de vendas enviando uma mensagem de follow-up no WhatsApp.
+const FOLLOW_UP_PROMPT = `Você é a Eshylei, assistente virtual da Full House Rodízio, enviando uma mensagem de follow-up no WhatsApp.
 
 CONTEXTO:
 - Nome do cliente: {customer_name}
 - O que ele disse antes: "{original_message}"
 - Intent detectado: {intent}
 - Contexto adicional: {context}
-- Gancho de urg\u00eancia: {urgency_hook}
 - Tom: {tone}
 
-MEM\u00d3RIAS DO CONTATO:
+STATUS DE RESERVA DO CLIENTE:
+{reservation_status}
+
+MEMÓRIAS DO CONTATO (use com critério - só as RECENTES e RELEVANTES):
 {memories}
 
-Gere UMA mensagem de follow-up curta (m\u00e1ximo 2 par\u00e1grafos) que:
-1. Retoma a conversa naturalmente referenciando o que foi discutido
-2. Usa o nome do cliente se dispon\u00edvel
-3. Inclui um gancho sutil de urg\u00eancia se dispon\u00edvel
-4. N\u00c3O usa markdown, N\u00c3O usa emojis excessivos (m\u00e1ximo 1)
-5. Soa como uma pessoa real, n\u00e3o um bot
-6. \u00c9 em portugu\u00eas do Brasil
+Gere UMA mensagem de follow-up curta (máximo 2 parágrafos) seguindo estas regras:
+
+SE O CLIENTE JÁ TEM RESERVA:
+- Parabenize pela reserva (mencione data, unidade e horário)
+- Diga que qualquer dúvida pode falar
+- NÃO tente vender nada, NÃO insista
+- Tom: acolhedor e finalizador
+
+SE O CLIENTE NÃO TEM RESERVA:
+- Retome a conversa naturalmente perguntando se ficou alguma dúvida
+- Foque no assunto MAIS RECENTE (não traga conversas antigas)
+- Mencione o link de reserva: https://fullhouseagendamento.vercel.app
+- Seja sutil, não pressione
+
+REGRAS GERAIS:
+1. Use o nome do cliente se disponível
+2. NÃO use markdown, NÃO use emojis excessivos (máximo 1)
+3. Soe como uma pessoa real, não um bot
+4. Em português do Brasil
+5. NÃO mencione informações de memórias antigas que não sejam relevantes ao contexto ATUAL
+6. Foque APENAS no que foi discutido recentemente
 
 Responda APENAS com o texto da mensagem, sem aspas.`;
 
@@ -446,6 +462,7 @@ export async function generateFollowUpMessage(
   customerName: string,
   memories: ChatMemory[],
   config: WhatsAppAIConfig,
+  reservationSummary?: string,
 ): Promise<string> {
   const { data: orgSettings } = await supabase
     .from('organization_settings')
@@ -465,9 +482,25 @@ export async function generateFollowUpMessage(
     return `Ol\u00e1${customerName ? ` ${customerName}` : ''}! Tudo bem? Gostaria de retomar nossa conversa. Posso ajudar com algo?`;
   }
 
-  const memoriesText = memories.length > 0
-    ? memories.map((m) => `- [${m.memory_type}] ${m.key}: ${m.value}`).join('\n')
-    : 'Nenhuma mem\u00f3ria registrada.';
+  // Filter memories: prioritize recent ones (last 7 days) and limit to most relevant
+  const now = new Date();
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const recentMemories = memories.filter(m => {
+    const created = new Date(m.created_at || 0);
+    return created >= sevenDaysAgo;
+  });
+  // If no recent memories, fall back to all but limit to 5 most recent
+  const relevantMemories = recentMemories.length > 0
+    ? recentMemories.slice(0, 8)
+    : memories.slice(0, 5);
+
+  const memoriesText = relevantMemories.length > 0
+    ? relevantMemories.map((m) => `- [${m.memory_type}] ${m.key}: ${m.value}`).join('\n')
+    : 'Nenhuma memória registrada.';
+
+  const reservationStatus = reservationSummary
+    ? `CLIENTE JÁ TEM RESERVA: ${reservationSummary}`
+    : 'Cliente NÃO tem reserva futura no sistema.';
 
   const context = followUp.context as Record<string, string>;
   const prompt = FOLLOW_UP_PROMPT
@@ -475,8 +508,8 @@ export async function generateFollowUpMessage(
     .replace('{original_message}', followUp.original_customer_message || '')
     .replace('{intent}', followUp.detected_intent || 'follow_up')
     .replace('{context}', context.context_for_message || JSON.stringify(followUp.context))
-    .replace('{urgency_hook}', context.urgency_hook || '')
     .replace('{tone}', config.agent_tone)
+    .replace('{reservation_status}', reservationStatus)
     .replace('{memories}', memoriesText);
 
   try {

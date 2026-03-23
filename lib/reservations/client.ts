@@ -1,8 +1,8 @@
 /**
  * Reservation System Client
  *
- * Connects directly to the FullHouse Reservations Supabase project
- * using the service_role key for full access.
+ * Connects to the FullHouse Reservations tables in the CRM Supabase.
+ * Generates individual time slots from the range-based time_slots table.
  */
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
@@ -39,20 +39,75 @@ export class ReservationClient {
   }
 
   /**
+   * Find a unit by partial name match (case-insensitive).
+   * Returns the best match or null.
+   */
+  async findUnitByName(name: string): Promise<ReservationUnit | null> {
+    const units = await this.getUnits();
+    if (units.length === 0) return null;
+
+    const normalized = name.toLowerCase().trim();
+
+    // Exact slug match
+    const slugMatch = units.find(u => u.slug === normalized);
+    if (slugMatch) return slugMatch;
+
+    // Partial name match (e.g. "boa vista" matches "Full House Boa Vista")
+    const nameMatch = units.find(u => u.name.toLowerCase().includes(normalized));
+    if (nameMatch) return nameMatch;
+
+    // Slug partial match (e.g. "boa" matches "boa-vista")
+    const slugPartial = units.find(u => u.slug.includes(normalized.replace(/\s+/g, '-')));
+    if (slugPartial) return slugPartial;
+
+    return null;
+  }
+
+  /**
+   * Generate individual time slots from a range definition.
+   * E.g. open_time=18:00, close_time=22:00, interval=30 → [18:00, 18:30, 19:00, ..., 21:30]
+   */
+  private generateSlotsFromRange(slot: ReservationTimeSlot): Array<{ time: string; maxPax: number }> {
+    const results: Array<{ time: string; maxPax: number }> = [];
+
+    const [openH, openM] = slot.open_time.split(':').map(Number);
+    const [closeH, closeM] = slot.close_time.split(':').map(Number);
+    const interval = slot.slot_interval_minutes || 30;
+
+    let currentMinutes = openH * 60 + openM;
+    const endMinutes = closeH * 60 + closeM;
+
+    while (currentMinutes < endMinutes) {
+      const h = Math.floor(currentMinutes / 60);
+      const m = currentMinutes % 60;
+      results.push({
+        time: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`,
+        maxPax: slot.max_pax_per_slot,
+      });
+      currentMinutes += interval;
+    }
+
+    return results;
+  }
+
+  /**
    * Get availability for a specific unit and date.
-   * Calculates available spots per time slot.
+   * Generates individual slots from the range-based time_slots table,
+   * then subtracts existing reservations.
    */
   async getAvailability(unitId: string, date: string): Promise<DayAvailability> {
     const dayOfWeek = new Date(date + 'T12:00:00').getDay();
 
-    // Get time slots for this day of the week
-    const { data: slots } = await this.supabase
+    // Get time slot ranges for this day of the week (uses REAL column names)
+    const { data: slotRanges, error: slotErr } = await this.supabase
       .from('time_slots')
       .select('*')
       .eq('unit_id', unitId)
       .eq('day_of_week', dayOfWeek)
       .eq('is_active', true)
-      .order('start_time');
+      .order('open_time');
+
+    if (slotErr) throw slotErr;
 
     // Get existing reservations for this date
     const { data: reservations } = await this.supabase
@@ -86,17 +141,27 @@ export class ReservationClient {
       };
     }
 
-    // Calculate availability per slot
-    const slotAvailability: SlotAvailability[] = (slots ?? []).map((slot: ReservationTimeSlot) => {
+    // Generate individual time slots from each range
+    const allGeneratedSlots: Array<{ time: string; maxPax: number }> = [];
+    for (const range of (slotRanges ?? []) as ReservationTimeSlot[]) {
+      allGeneratedSlots.push(...this.generateSlotsFromRange(range));
+    }
+
+    // Calculate availability per generated slot
+    const slotAvailability: SlotAvailability[] = allGeneratedSlots.map((slot) => {
+      // Match reservations by time (handle both HH:MM and HH:MM:SS formats)
       const reservedPax = (reservations ?? [])
-        .filter((r) => r.reservation_time === slot.start_time)
+        .filter((r) => {
+          const rTime = r.reservation_time?.substring(0, 5);
+          return rTime === slot.time;
+        })
         .reduce((sum: number, r) => sum + (r.pax || 0), 0);
 
       return {
-        time: slot.start_time,
-        maxPax: slot.max_pax,
+        time: slot.time,
+        maxPax: slot.maxPax,
         reservedPax,
-        availablePax: Math.max(0, slot.max_pax - reservedPax),
+        availablePax: Math.max(0, slot.maxPax - reservedPax),
       };
     });
 
@@ -164,6 +229,46 @@ export class ReservationClient {
       .single();
 
     return data ?? null;
+  }
+
+  /**
+   * Look up reservations by customer phone number.
+   * Returns upcoming reservations (today and future) sorted by date.
+   */
+  async getReservationsByPhone(phone: string): Promise<Reservation[]> {
+    // Normalize phone: keep only digits, try with and without country code
+    const digits = phone.replace(/\D/g, '');
+    const phoneVariants = [digits];
+    if (digits.startsWith('55') && digits.length >= 12) {
+      phoneVariants.push(digits.substring(2)); // without country code
+    } else if (digits.length <= 11) {
+      phoneVariants.push('55' + digits); // with country code
+    }
+
+    // Find customer by phone
+    const { data: customers } = await this.supabase
+      .from('customers')
+      .select('id')
+      .or(phoneVariants.map(p => `phone.like.%${p.slice(-8)}%`).join(','));
+
+    if (!customers || customers.length === 0) return [];
+
+    const customerIds = customers.map(c => c.id);
+    const today = new Date().toISOString().split('T')[0];
+
+    // Get future reservations
+    const { data: reservations, error } = await this.supabase
+      .from('reservations')
+      .select('*, customers(name, phone), units(name, slug)')
+      .in('customer_id', customerIds)
+      .gte('reservation_date', today)
+      .in('status', ['pending', 'confirmed', 'seated'])
+      .order('reservation_date', { ascending: true })
+      .order('reservation_time', { ascending: true })
+      .limit(5);
+
+    if (error) throw error;
+    return reservations ?? [];
   }
 
   /**
@@ -239,6 +344,5 @@ export async function createReservationClient(
   supabase: SupabaseClient,
   organizationId: string,
 ): Promise<ReservationClient | null> {
-  // Now running on unified DB, we just wrap the existing client
   return new ReservationClient(supabase, organizationId);
 }

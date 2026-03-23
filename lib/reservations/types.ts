@@ -1,6 +1,6 @@
 /**
  * Types for the FullHouse Reservation system integration.
- * The reservation system is a separate Supabase project.
+ * Matches the ACTUAL database schema in the CRM Supabase.
  */
 
 export interface ReservationUnit {
@@ -11,15 +11,21 @@ export interface ReservationUnit {
   phone?: string;
   max_pax_per_slot?: number;
   is_active: boolean;
+  organization_id?: string;
 }
 
+/**
+ * DB schema: time_slots stores a range (open_time → close_time)
+ * with intervals, NOT individual slot rows.
+ */
 export interface ReservationTimeSlot {
   id: string;
   unit_id: string;
   day_of_week: number; // 0=Sun, 1=Mon, ...
-  start_time: string; // HH:MM
-  end_time: string;   // HH:MM
-  max_pax: number;
+  open_time: string;   // HH:MM:SS (e.g. "18:00:00")
+  close_time: string;  // HH:MM:SS (e.g. "22:00:00")
+  slot_interval_minutes: number; // e.g. 30
+  max_pax_per_slot: number;      // e.g. 60
   is_active: boolean;
 }
 
@@ -46,7 +52,7 @@ export interface Reservation {
   updated_at: string;
   // Joined
   customers?: ReservationCustomer;
-  units?: ReservationUnit;
+  units?: Pick<ReservationUnit, 'name' | 'slug'>;
 }
 
 export interface SlotAvailability {
