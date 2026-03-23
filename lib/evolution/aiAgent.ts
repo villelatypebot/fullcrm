@@ -393,8 +393,6 @@ async function autoCreateDeal(
 // MAIN ENTRY POINT
 // =============================================================================
 
-const pendingAIProcessing = new Map<string, boolean>();
-
 export async function processIncomingMessage(ctx: AIAgentContext): Promise<void> {
   const { supabase, conversation, instance } = ctx;
 
@@ -403,36 +401,41 @@ export async function processIncomingMessage(ctx: AIAgentContext): Promise<void>
 
   if (!conversation.ai_active) return;
 
-  // -- BATCHING ENGINE (Synchronous 5s Debounce for Vercel Serverless) --
-  // If a webhook is already waiting to process this conversation, we just exit this duplicate webhook early.
-  // The first webhook will collect ALL messages inserted during the wait time!
-  if (pendingAIProcessing.has(conversation.id)) {
-    return;
-  }
+  // -- DEBOUNCE via last_message_at (works in Vercel Serverless) --
+  // Record the last_message_at BEFORE waiting. After waiting, check if it changed
+  // (meaning another message arrived). If so, let that newer webhook handle it.
+  const messageTimeBefore = conversation.last_message_at;
 
-  // Lock this conversation
-  pendingAIProcessing.set(conversation.id, true);
+  // Wait 5 seconds for message batching (short enough to stay within Vercel limits)
+  await new Promise((resolve) => setTimeout(resolve, 5000));
 
-  // Wait 10 seconds for message batching. Reduced from 30s to avoid Vercel timeout.
-  // Total request time: 10s batch + ~15s AI generation = ~25s (within 60s Vercel Pro limit)
-  await new Promise((resolve) => setTimeout(resolve, 10000));
-
-  // Release lock
-  pendingAIProcessing.delete(conversation.id);
-
-  // Fetch the freshest conversation details because unread_count likely changed from other fast messages
+  // Re-fetch conversation to get latest state
   const { data: freshConv } = await supabase
     .from('whatsapp_conversations')
     .select('*')
     .eq('id', conversation.id)
     .single();
 
-  if (freshConv && freshConv.ai_active) {
-    try {
-      await _executeAIAfterBatch(ctx, freshConv as WhatsAppConversation, config);
-    } catch (e) {
-      console.error('[ai-agent] Batch execution failed:', e);
-    }
+  if (!freshConv || !freshConv.ai_active) return;
+
+  // If last_message_at changed, another message arrived — that webhook will handle
+  if (freshConv.last_message_at !== messageTimeBefore) {
+    console.log('[ai-agent] Newer message arrived, deferring to its webhook', conversation.id);
+    return;
+  }
+
+  try {
+    await _executeAIAfterBatch(ctx, freshConv as WhatsAppConversation, config);
+  } catch (e) {
+    console.error('[ai-agent] Batch execution failed:', e);
+    // Log error to DB so we can see it
+    await insertAILog(supabase, {
+      conversation_id: conversation.id,
+      organization_id: instance.organization_id,
+      action: 'error',
+      details: { error: e instanceof Error ? e.message : String(e), phase: 'batch_execution' },
+      triggered_by: 'ai',
+    });
   }
 }
 
@@ -728,6 +731,8 @@ async function _executeAIAfterBatch(ctx: AIAgentContext, conversation: WhatsAppC
   const incomingMessage = ctx.incomingMessage;
 
   try {
+    console.log('[ai-agent] Generating AI response for', conversation.phone, 'provider:', config.system_prompt ? 'has_prompt' : 'no_prompt');
+
     const aiResponse = await generateAIResponse(
       supabase,
       organizationId,
@@ -739,11 +744,15 @@ async function _executeAIAfterBatch(ctx: AIAgentContext, conversation: WhatsAppC
       { phone: conversation.phone, name: conversation.contact_name || 'Cliente WhatsApp' }
     );
 
+    console.log('[ai-agent] AI response generated, length:', aiResponse.length);
+
     if (config.reply_delay_ms > 0) {
       await new Promise((resolve) => setTimeout(resolve, config.reply_delay_ms));
     }
 
     const msg = await sendAIReply(supabase, instance, conversation, aiResponse);
+
+    console.log('[ai-agent] Reply sent to', conversation.phone, 'msg_id:', msg?.id);
 
     await insertAILog(supabase, {
       conversation_id: conversation.id,
@@ -761,11 +770,12 @@ async function _executeAIAfterBatch(ctx: AIAgentContext, conversation: WhatsAppC
       );
     }
   } catch (err) {
+    console.error('[ai-agent] generateAIResponse FAILED:', err);
     await insertAILog(supabase, {
       conversation_id: conversation.id,
       organization_id: instance.organization_id,
       action: 'error',
-      details: { error: err instanceof Error ? err.message : String(err) },
+      details: { error: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack?.slice(0, 300) : undefined },
       triggered_by: 'ai',
     });
   }
