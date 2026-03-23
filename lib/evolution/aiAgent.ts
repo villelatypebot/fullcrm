@@ -1123,8 +1123,8 @@ async function _executeAIAfterBatch(ctx: AIAgentContext, conversation: WhatsAppC
       });
     }
 
-    // Generate summary periodically (every 10 messages)
-    if (config.summary_enabled && msgCount && msgCount % 10 === 0) {
+    // Generate summary periodically (every 5 customer messages, or first time at 3+)
+    if (config.summary_enabled && msgCount && (msgCount >= 3 && msgCount % 5 === 0 || msgCount === 3)) {
       generateAndSaveSummary(supabase, conversation, instance.organization_id, conversationHistory, memories).catch(
         (err) => console.error('[ai-agent] Summary generation failed:', err),
       );
