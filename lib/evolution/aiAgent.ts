@@ -265,14 +265,59 @@ async function generateAIResponse(
   const reservationTools = await buildReservationTools(supabase, organizationId, customerInfo);
   const hasTools = Object.keys(reservationTools).length > 0;
 
+  console.log('[ai-agent] Calling generateText with provider:', provider, 'model:', model, 'hasTools:', hasTools);
+
   const result = await generateText({
     model: modelInstance,
     messages,
     maxOutputTokens: 500,
-    ...(hasTools ? { maxSteps: 3, tools: reservationTools } : {}),
+    ...(hasTools ? { maxSteps: 5, tools: reservationTools } : {}),
   } as any);
 
-  return result.text || config.transfer_message || 'Desculpe, nao consegui processar sua mensagem.';
+  console.log('[ai-agent] generateText result - text length:', result.text?.length ?? 0,
+    'steps:', (result as any).steps?.length ?? 0,
+    'toolCalls:', (result as any).toolCalls?.length ?? 0,
+    'toolResults:', (result as any).toolResults?.length ?? 0);
+
+  // If result.text is empty (e.g., model ended on a tool call without final text),
+  // try to extract a meaningful response from the last step's text or tool results
+  if (result.text) {
+    return result.text;
+  }
+
+  // Check if there are step results with text
+  const steps = (result as any).steps as Array<{ text?: string; toolResults?: Array<{ result: unknown }> }> | undefined;
+  if (steps && steps.length > 0) {
+    // Find the last step with text
+    for (let i = steps.length - 1; i >= 0; i--) {
+      if (steps[i].text && (steps[i].text as string).trim().length > 0) {
+        return steps[i].text as string;
+      }
+    }
+
+    // If no text in any step, build a response from tool results
+    const lastToolResults = steps.flatMap(s => s.toolResults || []);
+    if (lastToolResults.length > 0) {
+      const lastResult = lastToolResults[lastToolResults.length - 1].result as Record<string, unknown>;
+      console.log('[ai-agent] No text from model, using tool result:', JSON.stringify(lastResult).slice(0, 200));
+
+      // Build a meaningful fallback from tool data
+      if (lastResult?.available === true && lastResult?.booking_link) {
+        const slots = (lastResult.available_time_slots as Array<{ time: string; available_pax_capacity: number }>) || [];
+        const slotsText = slots.map(s => `${s.time} (${s.available_pax_capacity} vagas)`).join(', ');
+        return `Temos disponibilidade na ${lastResult.unit_name} em ${lastResult.date}! Horários: ${slotsText}.\n\nPara fazer sua reserva, acesse: ${lastResult.booking_link}`;
+      } else if (lastResult?.available === false) {
+        return lastResult.message as string || 'Infelizmente não há disponibilidade nessa data. Gostaria de consultar outra data ou unidade?';
+      } else if (lastResult?.has_reservations === true) {
+        const res = (lastResult.reservations as Array<{ date: string; time: string; unit_name: string }>) || [];
+        const resText = res.map(r => `${r.date} às ${r.time} na ${r.unit_name}`).join('; ');
+        return `Encontrei sua(s) reserva(s): ${resText}. Qualquer dúvida, estou aqui!`;
+      }
+    }
+  }
+
+  console.warn('[ai-agent] generateText returned empty text, no usable steps. Full result keys:', Object.keys(result));
+  return config.transfer_message || 'Desculpe, nao consegui processar sua mensagem.';
 }
 
 // =============================================================================
